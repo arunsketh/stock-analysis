@@ -24,7 +24,7 @@ def save_watchlist(df):
     """Saves the entire watchlist DataFrame to the CSV file, overwriting it."""
     df.to_csv(CSV_FILE, index=False)
 
-# --- yfinance Data Fetching (Updated) ---
+# --- yfinance Data Fetching ---
 @st.cache_data(ttl=600) # Cache data for 10 minutes
 def get_stock_data(symbol):
     """Fetches stock data including new metrics using the yfinance library."""
@@ -37,18 +37,12 @@ def get_stock_data(symbol):
             st.error(f"Could not get price history for {symbol}. It might be an invalid ticker.")
             return None, None, None, None, None
             
-        # Standard data
         current_price = history['Close'].iloc[-1]
         target_price = info.get('targetMeanPrice')
-        
-        # New metrics for ranking
         eps = info.get('trailingEps')
         market_cap = info.get('marketCap')
         pe_ratio = info.get('trailingPE')
         
-        if not target_price:
-            st.warning(f"Analyst target price is not available for {symbol}.")
-            
         return current_price, target_price, eps, market_cap, pe_ratio
         
     except Exception as e:
@@ -57,10 +51,8 @@ def get_stock_data(symbol):
 
 # --- Main Analysis Function (Updated) ---
 def perform_analysis(symbols):
-    """Takes a list of symbols and returns a formatted DataFrame with analysis and rankings."""
+    """Takes a list of symbols and returns a DataFrame with analysis and rankings."""
     data = []
-    st.header("Analyst Target Price & Financial Ranking")
-    progress_bar = st.progress(0)
     
     for i, symbol in enumerate(symbols):
         current_price, target_price, eps, market_cap, pe_ratio = get_stock_data(symbol)
@@ -75,8 +67,6 @@ def perform_analysis(symbols):
                 "Market Cap": market_cap,
                 "P/E Ratio": pe_ratio
             })
-        progress_bar.progress((i + 1) / len(symbols))
-    progress_bar.empty()
 
     if not data:
         return None
@@ -84,54 +74,39 @@ def perform_analysis(symbols):
     df = pd.DataFrame(data)
     
     # --- Create Rankings ---
-    # Rank by EPS (higher is better)
+    df['Upside Rank'] = df['Upside'].rank(ascending=False, method='min', na_option='bottom')
     df['EPS Rank'] = df['EPS'].rank(ascending=False, method='min', na_option='bottom')
-    # Rank by Market Cap (higher is better)
-    df['Market Cap Rank'] = df['Market Cap'].rank(ascending=False, method='min', na_option='bottom')
-    # Rank by P/E Ratio (lower is better)
     df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')
     
-    # Calculate Combined Rank (lower sum is better)
-    df['Combined Score'] = df['EPS Rank'] + df['Market Cap Rank'] + df['P/E Rank']
-    df['Overall Rank'] = df['Combined Score'].rank(ascending=True, method='min')
+    # Calculate Combined Rank using the product of individual ranks
+    df['Rank Product'] = df['Upside Rank'] * df['EPS Rank'] * df['P/E Rank']
+    df['Overall Rank'] = df['Rank Product'].rank(ascending=True, method='min')
     
-    # Sort by the final overall rank
-    df = df.sort_values(by='Overall Rank')
+    df = df.sort_values(by='Overall Rank').reset_index(drop=True)
     
-    # --- Format for Display ---
-    df_display = df.copy()
-    
-    # Helper function to format large numbers
-    def format_market_cap(cap):
-        if pd.isnull(cap): return 'N/A'
-        cap = float(cap)
-        if cap >= 1e12:
-            return f'${cap/1e12:.2f}T'
-        elif cap >= 1e9:
-            return f'${cap/1e9:.2f}B'
-        elif cap >= 1e6:
-            return f'${cap/1e6:.2f}M'
-        return f'${cap:,.0f}'
+    return df
 
-    df_display['Overall Rank'] = df_display['Overall Rank'].astype(int)
-    df_display['Current Price'] = df_display['Current Price'].map('${:,.2f}'.format)
-    df_display['Analyst Target'] = df_display['Analyst Target'].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else 'N/A')
-    df_display['Upside'] = df_display['Upside'].map(lambda x: f"{x:.2%}" if pd.notnull(x) and x != 0 else 'N/A')
-    df_display['EPS'] = df_display['EPS'].map(lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A')
-    df_display['Market Cap'] = df_display['Market Cap'].map(format_market_cap)
-    df_display['P/E Ratio'] = df_display['P/E Ratio'].map(lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A')
-
-    # Reorder columns for the final view
-    final_columns = ['Overall Rank', 'Stock Symbol', 'Current Price', 'Analyst Target', 'Upside', 
-                     'Market Cap', 'EPS', 'P/E Ratio']
-    
-    return df_display[final_columns]
-
-# --- Streamlit App (Unchanged) ---
+# --- Streamlit App ---
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis Dashboard")
 
+    with st.expander("🎓 Learn About the Metrics"):
+        st.markdown("""
+        ### Analyst Upside Potential
+        - **What it is:** The percentage difference between the current stock price and the average target price set by market analysts.
+        - **Significance:** A high upside suggests that analysts believe the stock is currently undervalued and has significant room to grow. It's a forward-looking indicator of market sentiment.
+
+        ### EPS (Earnings Per Share)
+        - **What it is:** A company's profit divided by the number of its outstanding common stock shares. It represents the portion of a company's profit allocated to each share.
+        - **Significance:** EPS is a key indicator of a company's profitability. A higher EPS generally indicates better financial health and higher value.
+
+        ### P/E (Price-to-Earnings) Ratio
+        - **What it is:** The ratio of a company's stock price to its earnings per share. It shows what the market is willing to pay today for a stock based on its past or future earnings.
+        - **Significance:** A **low P/E ratio** can indicate that a stock is undervalued or that investors expect slow growth. A **high P/E ratio** can mean the stock is overvalued or that investors expect high future growth. We rank lower P/E ratios as better, as it often points to a value investment.
+        """)
+
+    # --- Sidebar and Watchlist Management (Unchanged) ---
     if 'watchlist' not in st.session_state:
         st.session_state.watchlist = load_watchlist()
 
@@ -139,8 +114,8 @@ def main():
 
     with st.sidebar.form("add_stock_form", clear_on_submit=True):
         new_symbol = st.text_input("Enter Stock Symbol")
-        add_stock = st.form_submit_button("Add to Watchlist")
-        if add_stock and new_symbol:
+        if st.form_submit_button("Add to Watchlist") and new_symbol:
+            # Add to watchlist logic here...
             symbol_upper = new_symbol.strip().upper()
             if symbol_upper not in st.session_state.watchlist["Symbol"].values:
                 new_entry = pd.DataFrame({"Symbol": [symbol_upper]})
@@ -154,6 +129,7 @@ def main():
     if not st.session_state.watchlist.empty:
         st.sidebar.subheader("Current Stocks")
         for index, row in st.session_state.watchlist.iterrows():
+            # Display and remove logic here...
             symbol = row["Symbol"]
             col1, col2 = st.sidebar.columns([3, 1])
             col1.write(symbol)
@@ -161,12 +137,9 @@ def main():
                 st.session_state.watchlist = st.session_state.watchlist[st.session_state.watchlist["Symbol"] != symbol]
                 save_watchlist(st.session_state.watchlist)
                 st.rerun()
-        
-        if st.sidebar.button("Remove All Stocks"):
-            st.session_state.watchlist = pd.DataFrame(columns=["Symbol"])
-            save_watchlist(st.session_state.watchlist)
-            st.rerun()
-
+    
+    # --- Main Page for Stock Analysis ---
+    st.header("Financial Ranking & Analysis")
     default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META"
     
     if 'symbols_input' not in st.session_state:
@@ -184,7 +157,30 @@ def main():
     if symbols_to_analyze:
         analysis_df = perform_analysis(symbols_to_analyze)
         if analysis_df is not None:
-            st.dataframe(analysis_df, use_container_width=True)
+            # --- Format and Style the DataFrame for Display ---
+            def format_market_cap(cap):
+                if pd.isnull(cap): return 'N/A'
+                cap = float(cap)
+                return f'${cap/1e12:.2f}T' if cap >= 1e12 else f'${cap/1e9:.2f}B'
+
+            # Define columns for the final view
+            display_columns = {
+                'Overall Rank': '{:.0f}',
+                'Stock Symbol': '{}',
+                'Current Price': '${:,.2f}',
+                'Analyst Target': lambda x: f"${x:,.2f}" if pd.notnull(x) else 'N/A',
+                'Upside': '{:,.2%}',
+                'Market Cap': format_market_cap,
+                'EPS': lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A',
+                'P/E Ratio': lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A'
+            }
+            
+            # Apply formatting and color gradients
+            styler = analysis_df[display_columns.keys()].style.format(display_columns)
+            styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'], vmin=-0.25, vmax=0.5)
+            styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio']) # _r reverses the colormap
+            
+            st.dataframe(styler, use_container_width=True)
         else:
             st.info("No data to display for the entered symbols.")
     else:
