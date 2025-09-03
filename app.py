@@ -121,4 +121,10 @@ def main():
                 df = pd.DataFrame(data)
                 df_sorted = df.sort_values(by="Upside", ascending=False).reset_index(drop=True)
                 df_display = df_sorted.copy()
-                df_display['Current Price'] = df_display['Current
+                df_display['Current Price'] = df_display['Current Price'].map('${:,.2f}'.format)
+                df_display['Analyst Target Price'] = df_display['Analyst Target Price'].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else 'N/A')
+                df_display['Upside'] = df_display['Upside'].map(lambda x: f"{x:.2%}" if pd.notnull(x) and x != 0 else 'N/A')
+                st.dataframe(df_display, use_container_width=True)
+
+if __name__ == "__main__":
+    main()
