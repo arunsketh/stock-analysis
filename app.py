@@ -76,7 +76,7 @@ def perform_analysis(symbols):
     # --- Create Rankings ---
     df['Upside Rank'] = df['Upside'].rank(ascending=False, method='min', na_option='bottom')
     df['EPS Rank'] = df['EPS'].rank(ascending=False, method='min', na_option='bottom')
-    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')
+    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom') # Lower P/E is better for this rank
     
     df['Rank Product'] = df['Upside Rank'] * df['EPS Rank'] * df['P/E Rank']
     df['Overall Rank'] = df['Rank Product'].rank(ascending=True, method='min')
@@ -90,20 +90,7 @@ def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis Dashboard")
 
-    with st.expander("🎓 Learn About the Metrics"):
-        st.markdown("""
-        ### Analyst Upside Potential
-        - **What it is:** The percentage difference between the current stock price and the average target price set by market analysts.
-        - **Significance:** A high upside suggests that analysts believe the stock is currently undervalued and has significant room to grow.
-
-        ### EPS (Earnings Per Share)
-        - **What it is:** A company's profit divided by its outstanding common stock shares.
-        - **Significance:** EPS is a key indicator of a company's profitability. A higher EPS generally indicates better financial health.
-
-        ### P/E (Price-to-Earnings) Ratio
-        - **What it is:** The ratio of a company's stock price to its earnings per share.
-        - **Significance:** A **low P/E ratio** can indicate that a stock is undervalued. A **high P/E ratio** can mean the stock is overvalued or that investors expect high future growth. We rank lower P/E ratios as better.
-        """)
+    
 
     # --- Sidebar and Watchlist Management (Unchanged) ---
     if 'watchlist' not in st.session_state:
@@ -179,15 +166,33 @@ def main():
             
             # Apply formatting and color gradients
             styler = analysis_df[column_order].style.format(format_rules)
-            styler.background_gradient(cmap='Greens', subset=['Upside'])
-            styler.background_gradient(cmap='BuGn', subset=['EPS'])
-            styler.background_gradient(cmap='YlGn_r', subset=['P/E Ratio']) # _r reverses colormap
+            
+            # Upside and EPS: Higher is better (Green to Red)
+            styler.background_gradient(cmap='RdYlGn', subset=['Upside'])
+            styler.background_gradient(cmap='RdYlGn', subset=['EPS'])
+            
+            # P/E Ratio: Lower is better, so reverse the colormap (Red for high P/E, Green for low P/E)
+            styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio']) 
             
             st.dataframe(styler, use_container_width=True)
         else:
             st.info("No data to display for the entered symbols.")
     else:
         st.warning("Please enter at least one stock symbol to analyze.")
+    with st.expander("🎓 Learn About the Metrics"):
+        st.markdown("""
+        ### Analyst Upside Potential
+        - **What it is:** The percentage difference between the current stock price and the average target price set by market analysts.
+        - **Significance:** A high upside suggests that analysts believe the stock is currently undervalued and has significant room to grow.
+
+        ### EPS (Earnings Per Share)
+        - **What it is:** A company's profit divided by its outstanding common stock shares.
+        - **Significance:** EPS is a key indicator of a company's profitability. A higher EPS generally indicates better financial health.
+
+        ### P/E (Price-to-Earnings) Ratio
+        - **What it is:** The ratio of a company's stock price to its earnings per share.
+        - **Significance:** A **low P/E ratio** can indicate that a stock is undervalued. A **high P/E ratio** can mean the stock is overvalued or that investors expect high future growth. We rank lower P/E ratios as better.
+        """)
 
 if __name__ == "__main__":
     main()
