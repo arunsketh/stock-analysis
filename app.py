@@ -49,7 +49,7 @@ def get_stock_data(symbol):
         st.error(f"Error fetching data for {symbol}: {e}")
         return None, None, None, None, None
 
-# --- Main Analysis Function (Updated) ---
+# --- Main Analysis Function ---
 def perform_analysis(symbols):
     """Takes a list of symbols and returns a DataFrame with analysis and rankings."""
     data = []
@@ -78,7 +78,6 @@ def perform_analysis(symbols):
     df['EPS Rank'] = df['EPS'].rank(ascending=False, method='min', na_option='bottom')
     df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')
     
-    # Calculate Combined Rank using the product of individual ranks
     df['Rank Product'] = df['Upside Rank'] * df['EPS Rank'] * df['P/E Rank']
     df['Overall Rank'] = df['Rank Product'].rank(ascending=True, method='min')
     
@@ -95,15 +94,15 @@ def main():
         st.markdown("""
         ### Analyst Upside Potential
         - **What it is:** The percentage difference between the current stock price and the average target price set by market analysts.
-        - **Significance:** A high upside suggests that analysts believe the stock is currently undervalued and has significant room to grow. It's a forward-looking indicator of market sentiment.
+        - **Significance:** A high upside suggests that analysts believe the stock is currently undervalued and has significant room to grow.
 
         ### EPS (Earnings Per Share)
-        - **What it is:** A company's profit divided by the number of its outstanding common stock shares. It represents the portion of a company's profit allocated to each share.
-        - **Significance:** EPS is a key indicator of a company's profitability. A higher EPS generally indicates better financial health and higher value.
+        - **What it is:** A company's profit divided by its outstanding common stock shares.
+        - **Significance:** EPS is a key indicator of a company's profitability. A higher EPS generally indicates better financial health.
 
         ### P/E (Price-to-Earnings) Ratio
-        - **What it is:** The ratio of a company's stock price to its earnings per share. It shows what the market is willing to pay today for a stock based on its past or future earnings.
-        - **Significance:** A **low P/E ratio** can indicate that a stock is undervalued or that investors expect slow growth. A **high P/E ratio** can mean the stock is overvalued or that investors expect high future growth. We rank lower P/E ratios as better, as it often points to a value investment.
+        - **What it is:** The ratio of a company's stock price to its earnings per share.
+        - **Significance:** A **low P/E ratio** can indicate that a stock is undervalued. A **high P/E ratio** can mean the stock is overvalued or that investors expect high future growth. We rank lower P/E ratios as better.
         """)
 
     # --- Sidebar and Watchlist Management (Unchanged) ---
@@ -115,7 +114,6 @@ def main():
     with st.sidebar.form("add_stock_form", clear_on_submit=True):
         new_symbol = st.text_input("Enter Stock Symbol")
         if st.form_submit_button("Add to Watchlist") and new_symbol:
-            # Add to watchlist logic here...
             symbol_upper = new_symbol.strip().upper()
             if symbol_upper not in st.session_state.watchlist["Symbol"].values:
                 new_entry = pd.DataFrame({"Symbol": [symbol_upper]})
@@ -129,7 +127,6 @@ def main():
     if not st.session_state.watchlist.empty:
         st.sidebar.subheader("Current Stocks")
         for index, row in st.session_state.watchlist.iterrows():
-            # Display and remove logic here...
             symbol = row["Symbol"]
             col1, col2 = st.sidebar.columns([3, 1])
             col1.write(symbol)
@@ -163,10 +160,15 @@ def main():
                 cap = float(cap)
                 return f'${cap/1e12:.2f}T' if cap >= 1e12 else f'${cap/1e9:.2f}B'
 
-            # Define columns for the final view
-            display_columns = {
+            # Define the desired column order
+            column_order = [
+                "Stock Symbol", "Market Cap", "Current Price", "Analyst Target", 
+                "Upside", "EPS", "P/E Ratio", "Overall Rank"
+            ]
+            
+            # Define formatting for each column
+            format_rules = {
                 'Overall Rank': '{:.0f}',
-                'Stock Symbol': '{}',
                 'Current Price': '${:,.2f}',
                 'Analyst Target': lambda x: f"${x:,.2f}" if pd.notnull(x) else 'N/A',
                 'Upside': '{:,.2%}',
@@ -176,9 +178,10 @@ def main():
             }
             
             # Apply formatting and color gradients
-            styler = analysis_df[display_columns.keys()].style.format(display_columns)
-            styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'], vmin=-0.25, vmax=0.5)
-            styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio']) # _r reverses the colormap
+            styler = analysis_df[column_order].style.format(format_rules)
+            styler.background_gradient(cmap='Greens', subset=['Upside'])
+            styler.background_gradient(cmap='BuGn', subset=['EPS'])
+            styler.background_gradient(cmap='YlGn_r', subset=['P/E Ratio']) # _r reverses colormap
             
             st.dataframe(styler, use_container_width=True)
         else:
