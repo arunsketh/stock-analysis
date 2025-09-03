@@ -3,38 +3,50 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import os
 
-# --- URL-based Watchlist Management ---
+# --- CSV Data Management for Watchlist ---
+CSV_FILE = 'watchlist.csv'
 
-def load_watchlist_from_url():
-    """Loads the watchlist from the URL query parameters."""
-    params = st.query_params.get("watchlist", "")
-    symbols = params.split(",") if params else []
-    return pd.DataFrame({"Symbol": symbols})
+def load_watchlist():
+    """Loads the watchlist from a CSV file. If it doesn't exist, creates an empty one."""
+    if os.path.exists(CSV_FILE):
+        try:
+            return pd.read_csv(CSV_FILE)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame(columns=["Symbol"])
+    else:
+        df = pd.DataFrame(columns=["Symbol"])
+        df.to_csv(CSV_FILE, index=False)
+        return df
 
-def save_watchlist_to_url(df):
-    """Saves the watchlist to the URL query parameters."""
-    symbols = df["Symbol"].tolist()
-    st.query_params["watchlist"] = ",".join(symbols)
+def save_watchlist(df):
+    """Saves the entire watchlist DataFrame to the CSV file, overwriting it."""
+    df.to_csv(CSV_FILE, index=False)
 
-# --- yfinance Data Fetching (Unchanged) ---
-@st.cache_data(ttl=600)
+# --- yfinance Data Fetching ---
+@st.cache_data(ttl=600) # Cache data for 10 minutes
 def get_stock_data(symbol):
     """Fetches stock data using the yfinance library."""
     try:
         ticker = yf.Ticker(symbol)
         history = ticker.history(period="1d")
-        if history.empty: return None, None
+        if history.empty:
+            st.error(f"Could not get price history for {symbol}. It might be an invalid ticker.")
+            return None, None
         current_price = history['Close'].iloc[-1]
         target_price = ticker.info.get('targetMeanPrice')
+        
+        if not target_price:
+             st.warning(f"Analyst target price is not available for {symbol}.")
         return current_price, target_price
-    except Exception:
+    except Exception as e:
+        st.error(f"Error fetching data for {symbol}: {e}")
         return None, None
 
-# --- Main Analysis Function (Unchanged) ---
+# --- Main Analysis Function ---
 def perform_analysis(symbols):
     """Takes a list of symbols and returns a formatted DataFrame with their analysis."""
-    # ... (This function remains the same as the previous version) ...
     data = []
     st.header("Analyst Target Price Comparison")
     progress_bar = st.progress(0)
@@ -42,9 +54,15 @@ def perform_analysis(symbols):
         current_price, target_price = get_stock_data(symbol)
         if current_price is not None:
             upside = ((target_price - current_price) / current_price) if target_price and current_price != 0 else 0
-            data.append({"Stock Symbol": symbol, "Current Price": current_price, "Analyst Target Price": target_price, "Upside": upside})
+            data.append({
+                "Stock Symbol": symbol,
+                "Current Price": current_price,
+                "Analyst Target Price": target_price,
+                "Upside": upside
+            })
         progress_bar.progress((i + 1) / len(symbols))
-    progress_bar.empty()
+    progress_bar.empty() # Clear the progress bar after completion
+
     if data:
         df = pd.DataFrame(data)
         df_sorted = df.sort_values(by="Upside", ascending=False).reset_index(drop=True)
@@ -60,22 +78,24 @@ def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis Dashboard")
 
-    # Load watchlist from URL into session_state
+    # Load watchlist from CSV into session_state
     if 'watchlist' not in st.session_state:
-        st.session_state.watchlist = load_watchlist_from_url()
+        st.session_state.watchlist = load_watchlist()
 
     # --- Sidebar for Watchlist Management ---
     st.sidebar.header("My Watchlist")
 
     with st.sidebar.form("add_stock_form", clear_on_submit=True):
         new_symbol = st.text_input("Enter Stock Symbol")
-        if st.form_submit_button("Add to Watchlist") and new_symbol:
+        add_stock = st.form_submit_button("Add to Watchlist")
+        if add_stock and new_symbol:
             symbol_upper = new_symbol.strip().upper()
             if symbol_upper not in st.session_state.watchlist["Symbol"].values:
                 new_entry = pd.DataFrame({"Symbol": [symbol_upper]})
                 st.session_state.watchlist = pd.concat([st.session_state.watchlist, new_entry], ignore_index=True)
-                save_watchlist_to_url(st.session_state.watchlist)
+                save_watchlist(st.session_state.watchlist)
                 st.sidebar.success(f"Added {symbol_upper}!")
+                st.rerun()
             else:
                 st.sidebar.warning(f"{symbol_upper} is already in the watchlist.")
     
@@ -87,21 +107,40 @@ def main():
             col1.write(symbol)
             if col2.button("❌", key=f"remove_{symbol}", help=f"Remove {symbol}"):
                 st.session_state.watchlist = st.session_state.watchlist[st.session_state.watchlist["Symbol"] != symbol]
-                save_watchlist_to_url(st.session_state.watchlist)
+                save_watchlist(st.session_state.watchlist)
                 st.rerun()
+        
+        if st.sidebar.button("Remove All Stocks"):
+            st.session_state.watchlist = pd.DataFrame(columns=["Symbol"])
+            save_watchlist(st.session_state.watchlist)
+            st.rerun()
 
     # --- Main Page for Stock Analysis ---
-    # Default stocks if the URL is empty
-    default_stocks_if_empty = "AAPL, MSFT, GOOGL"
+    default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META"
     
-    # Use watchlist symbols from URL for analysis
-    watchlist_symbols = st.session_state.watchlist["Symbol"].tolist()
-    symbols_to_analyze = watchlist_symbols if watchlist_symbols else default_stocks_if_empty.split(",")
+    # Initialize session state for the text input
+    if 'symbols_input' not in st.session_state:
+        st.session_state.symbols_input = default_stocks
+
+    # Update session state when the text input changes
+    st.session_state.symbols_input = st.text_input(
+        "Enter stock symbols to analyze:",
+        value=st.session_state.symbols_input
+    )
     
-    st.header("Analyst Target Price Comparison")
-    analysis_df = perform_analysis(symbols_to_analyze)
-    if analysis_df is not None:
-        st.dataframe(analysis_df, use_container_width=True)
+    # Button to refresh or run analysis on new symbols
+    st.button("Get Stock Analysis")
+    
+    symbols_to_analyze = [s.strip().upper() for s in st.session_state.symbols_input.split(",") if s.strip()]
+
+    if symbols_to_analyze:
+        analysis_df = perform_analysis(symbols_to_analyze)
+        if analysis_df is not None:
+            st.dataframe(analysis_df, use_container_width=True)
+        else:
+            st.info("No data to display for the entered symbols.")
+    else:
+        st.warning("Please enter at least one stock symbol to analyze.")
 
 if __name__ == "__main__":
     main()
