@@ -1,7 +1,7 @@
 # .gitignore
 
 # Local data files
-portfolio.csv
+watchlist.csv
 
 # Environments
 .env
