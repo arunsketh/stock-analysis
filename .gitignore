@@ -1,0 +1,20 @@
+# .gitignore
+
+# Local data files
+portfolio.csv
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Streamlit config
+.streamlit/
+
+# IDE files
+.idea/
+.vscode/
+
+# OS-generated files
+.DS_Store
