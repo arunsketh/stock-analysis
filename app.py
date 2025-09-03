@@ -2,8 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+import yfinance as yf # Replaces requests and BeautifulSoup
 import os
 
 # --- CSV Data Management ---
@@ -20,48 +19,45 @@ def save_portfolio(df):
     """Saves the portfolio to a CSV file."""
     df.to_csv(CSV_FILE, index=False)
 
-# --- Web Scraping ---
+# --- NEW: yfinance Data Fetching ---
+@st.cache_data(ttl=600) # Cache data for 10 minutes to avoid repeated API calls
 def get_stock_data(symbol):
     """
     Fetches the current price and analyst target price for a given stock symbol
-    from stockanalysis.com.
+    using the yfinance library.
     """
-    url = f"https://stockanalysis.com/stocks/{symbol}/"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+        ticker = yf.Ticker(symbol)
+        
+        # Get current price
+        history = ticker.history(period="1d")
+        if history.empty:
+            st.error(f"Could not get price history for {symbol}. It might be delisted or an invalid ticker.")
+            return None, None
+        current_price = history['Close'].iloc[-1]
 
-        current_price_element = soup.find('div', class_='text-4xl')
-        current_price = float(current_price_element.text.strip().replace(',', '')) if current_price_element else None
-
-        target_price_element = soup.find(lambda tag: '1y Price Target' in tag.text)
-        target_price = None
-        if target_price_element:
-            parent = target_price_element.find_parent('div')
-            price_element = parent.find('div', class_='text-2xl')
-            if price_element:
-                target_price = float(price_element.text.strip().replace('$', '').replace(',', ''))
+        # Get analyst target price
+        target_price = ticker.info.get('targetMeanPrice')
+        
+        # If target price is not available, mention it
+        if not target_price:
+             st.warning(f"Analyst target price is not available for {symbol}.")
 
         return current_price, target_price
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching data for {symbol}: {e}")
+    except Exception as e:
+        st.error(f"Error fetching data for {symbol} from yfinance: {e}")
         return None, None
 
-# --- Streamlit App ---
+# --- Streamlit App (UI code is mostly the same) ---
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis & Portfolio Tracker")
 
-    # Load portfolio from CSV into session_state
     if 'portfolio' not in st.session_state:
         st.session_state.portfolio = load_portfolio()
 
-    # --- Sidebar for Portfolio Management ---
     st.sidebar.header("Your Portfolio")
+    # ... (Sidebar form and display code remains unchanged) ...
     with st.sidebar.form("add_stock_form", clear_on_submit=True):
         st.subheader("Add a New Stock Purchase")
         new_symbol = st.text_input("Stock Symbol (e.g., AAPL)")
@@ -74,7 +70,7 @@ def main():
                 "Symbol": [new_symbol.upper()], "Shares": [new_shares], "Purchase Price": [new_price]
             })
             st.session_state.portfolio = pd.concat([st.session_state.portfolio, new_entry], ignore_index=True)
-            save_portfolio(st.session_state.portfolio) # Save on change
+            save_portfolio(st.session_state.portfolio)
             st.sidebar.success(f"Added {new_shares} shares of {new_symbol.upper()}!")
 
     st.sidebar.subheader("Current Portfolio")
@@ -82,11 +78,10 @@ def main():
         st.sidebar.dataframe(st.session_state.portfolio)
         if st.sidebar.button("Clear Portfolio"):
             st.session_state.portfolio = pd.DataFrame(columns=["Symbol", "Shares", "Purchase Price"])
-            save_portfolio(st.session_state.portfolio) # Save on change
+            save_portfolio(st.session_state.portfolio)
             st.sidebar.success("Portfolio cleared.")
             st.rerun()
-
-    # --- Main Page for Stock Analysis ---
+            
     st.header("Analyst Target Price Comparison")
     default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META"
     stock_symbols_input = st.text_input("Enter stock symbols separated by commas:", default_stocks)
@@ -100,16 +95,16 @@ def main():
             progress_bar = st.progress(0)
             for i, symbol in enumerate(symbols):
                 current_price, target_price = get_stock_data(symbol)
-                if current_price and target_price:
-                    upside = ((target_price - current_price) / current_price) if current_price != 0 else 0
+                
+                # Only add to table if we got data
+                if current_price is not None:
+                    upside = ((target_price - current_price) / current_price) if target_price and current_price != 0 else 0
                     data.append({
                         "Stock Symbol": symbol,
                         "Current Price": current_price,
                         "Analyst Target Price": target_price,
                         "Upside": upside
                     })
-                else:
-                    st.error(f"Could not retrieve data for {symbol}.")
                 progress_bar.progress((i + 1) / len(symbols))
 
             if data:
@@ -117,8 +112,8 @@ def main():
                 df_sorted = df.sort_values(by="Upside", ascending=False).reset_index(drop=True)
                 df_display = df_sorted.copy()
                 df_display['Current Price'] = df_display['Current Price'].map('${:,.2f}'.format)
-                df_display['Analyst Target Price'] = df_display['Analyst Target Price'].map('${:,.2f}'.format)
-                df_display['Upside'] = df_display['Upside'].map('{:.2%}'.format)
+                df_display['Analyst Target Price'] = df_display['Analyst Target Price'].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else 'N/A')
+                df_display['Upside'] = df_display['Upside'].map(lambda x: f"{x:.2%}" if pd.notnull(x) and x != 0 else 'N/A')
                 st.dataframe(df_display, use_container_width=True)
 
 if __name__ == "__main__":
