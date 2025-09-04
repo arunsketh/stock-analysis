@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Optional
 
 # --- Configuration & Constants ---
 
@@ -122,14 +122,12 @@ def display_styled_table(df: pd.DataFrame):
         "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
-    # The styler now uses our display_df which has formatted strings
     styler = display_df[column_order].style
 
-    # --- 3. Apply styles and formats using the ORIGINAL numeric data from `df` ---
-    # This is a new feature in Pandas 1.5.0 that lets us base styles on a different dataframe.
-    # Gradients for numeric columns
-    styler.background_gradient(cmap='Greens', subset=['Upside', 'EPS'], data=df)
-    styler.background_gradient(cmap='Greens_r', subset=['P/E Ratio'], data=df) # Reversed for P/E
+    # --- 3. Apply styles and formats ---
+    # Gradients for numeric columns (NO data=df needed)
+    styler.background_gradient(cmap='Greens', subset=['Upside', 'EPS'])
+    styler.background_gradient(cmap='Greens_r', subset=['P/E Ratio']) # Reversed for P/E
 
     # Simple formats for remaining numeric columns
     styler.format({
@@ -139,11 +137,11 @@ def display_styled_table(df: pd.DataFrame):
         'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
 
-
     # --- 4. Final Touches ---
     styler.hide() # Hide the index
     table_height = (len(df.index) + 1) * 35 + 3
     st.dataframe(styler, use_container_width=True, height=table_height)
+
 
 # --- Main Application ---
 
