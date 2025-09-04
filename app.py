@@ -1,190 +1,182 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from typing import List, Dict, Any, Tuple, Optional
 
-# --- Currency Symbol Mapping ---
-CURRENCY_SYMBOLS = {
+# --- Configuration & Constants ---
+
+# Set wide layout and page title
+st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
+
+# Dictionary for mapping currency codes to symbols for cleaner display
+CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥'
 }
 
-# --- yfinance Data Fetching ---
-@st.cache_data(ttl=600)  # Cache data for 10 minutes
-def get_stock_data(symbol):
-    """Fetches stock data including currency and other metrics using yfinance."""
+# --- Data Fetching ---
+
+@st.cache_data(ttl=3600)  # Cache data for 1 hour
+def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetches key financial data for a single stock symbol from Yahoo Finance.
+    Returns a dictionary of data or None if the ticker is invalid.
+    """
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
-        # Use a longer period to ensure data is fetched for less liquid stocks
-        history = ticker.history(period="5d")
+        
+        # Ensure essential data points exist, otherwise the ticker might be invalid
+        if not info or 'currentPrice' not in info:
+            st.warning(f"Could not retrieve valid data for {symbol}. It may be an incorrect ticker.")
+            return None
 
-        if history.empty:
-            st.warning(f"Could not get price history for {symbol}. It might be delisted or an invalid ticker.")
-            return None, None, None, None, None, None
-
-        current_price = history['Close'].iloc[-1]
-        target_price = info.get('targetMeanPrice')
-        eps = info.get('trailingEps')
-        market_cap = info.get('marketCap')
-        pe_ratio = info.get('trailingPE')
-        currency = info.get('currency', 'USD') # Default to USD if not found
-
-        return current_price, target_price, eps, market_cap, pe_ratio, currency
-
+        return {
+            "Stock Symbol": symbol,
+            "Current Price": info.get('currentPrice'),
+            "Analyst Target": info.get('targetMeanPrice'),
+            "EPS": info.get('trailingEps'),
+            "Market Cap": info.get('marketCap'),
+            "P/E Ratio": info.get('trailingPE'),
+            "Currency": info.get('currency', 'USD')
+        }
     except Exception as e:
-        st.error(f"Error fetching data for {symbol}: {e}")
-        return None, None, None, None, None, None
+        st.error(f"An error occurred while fetching data for {symbol}: {e}")
+        return None
 
-# --- Main Analysis Function ---
-def perform_analysis(symbols):
-    """Takes a list of symbols and returns a DataFrame with analysis and rankings."""
+# --- Data Analysis ---
+
+def analyze_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
+    """
+    Orchestrates fetching and analysis for a list of stock symbols.
+    Returns a ranked DataFrame or None if no data is available.
+    """
     data = []
+    progress_bar = st.progress(0, text="Initializing data fetch...")
 
-    progress_bar = st.progress(0, text="Fetching stock data...")
     for i, symbol in enumerate(symbols):
-        current_price, target_price, eps, market_cap, pe_ratio, currency = get_stock_data(symbol)
-        if current_price is not None:
-            upside = ((target_price - current_price) / current_price) if target_price and current_price != 0 else 0
-            data.append({
-                "Stock Symbol": symbol,
-                "Current Price": current_price,
-                "Analyst Target": target_price,
-                "Upside": upside,
-                "EPS": eps,
-                "Market Cap": market_cap,
-                "P/E Ratio": pe_ratio,
-                "Currency": currency
-            })
         progress_bar.progress((i + 1) / len(symbols), text=f"Fetching data for {symbol}...")
-
-    progress_bar.empty()  # Clear the progress bar
+        stock_data = get_stock_data(symbol)
+        if stock_data:
+            data.append(stock_data)
+    
+    progress_bar.empty()
 
     if not data:
+        st.error("No valid data could be retrieved for any of the entered symbols.")
         return None
 
     df = pd.DataFrame(data)
 
-    # --- Create Rankings ---
-    df['Upside Rank'] = df['Upside'].rank(ascending=False, method='min', na_option='bottom')
-    df['EPS Rank'] = df['EPS'].rank(ascending=False, method='min', na_option='bottom')
-    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')
-
-    df['Rank Product'] = df['Upside Rank'] * df['EPS Rank'] * df['P/E Rank']
-    df['Overall Rank'] = df['Rank Product'].rank(ascending=True, method='min')
-
-    df = df.sort_values(by='Overall Rank').reset_index(drop=True)
-
-    return df
-
-# --- UI Function to Display Styled Table ---
-def display_styled_table(df):
-    """Takes a DataFrame, formats it with currency symbols, and displays it."""
+    # --- Calculations & Ranking ---
+    # Calculate upside potential
+    df['Upside'] = (df['Analyst Target'] - df['Current Price']) / df['Current Price']
     
-    # --- Pre-format currency columns before styling ---
-    
-    # Helper to format any price column with the correct currency symbol
-    def format_price(row, col_name):
-        price = row[col_name]
-        currency_code = row.get('Currency', 'USD')
-        symbol = CURRENCY_SYMBOLS.get(currency_code, currency_code)
-        if pd.isnull(price): return 'N/A'
-        return f'{symbol}{price:,.2f}'
+    # Create individual ranks (higher is better for Upside/EPS, lower is better for P/E)
+    df['Upside Rank'] = df['Upside'].rank(ascending=False, na_option='bottom')
+    df['EPS Rank'] = df['EPS'].rank(ascending=False, na_option='bottom')
+    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, na_option='bottom')
 
-    # Helper to format Market Cap with currency symbol and size (M, B, T)
-    def format_market_cap(row):
-        cap = row['Market Cap']
-        currency_code = row.get('Currency', 'USD')
-        symbol = CURRENCY_SYMBOLS.get(currency_code, currency_code)
-        if pd.isnull(cap): return 'N/A'
-        cap = float(cap)
-        if cap >= 1e12: return f'{symbol}{cap/1e12:.2f}T'
-        if cap >= 1e9: return f'{symbol}{cap/1e9:.2f}B'
-        if cap >= 1e6: return f'{symbol}{cap/1e6:.2f}M'
-        return f'{symbol}{cap:,.2f}'
+    # Calculate a composite rank score
+    df['Overall Rank'] = (df['Upside Rank'] + df['EPS Rank'] + df['P/E Rank']).rank(ascending=True, method='min')
 
-    df_display = df.copy()
-    df_display['Market Cap'] = df_display.apply(format_market_cap, axis=1)
-    df_display['Current Price'] = df_display.apply(lambda row: format_price(row, 'Current Price'), axis=1)
-    df_display['Analyst Target'] = df_display.apply(lambda row: format_price(row, 'Analyst Target'), axis=1)
-    
-    # --- Define styling for the remaining numeric columns ---
-    
+    return df.sort_values(by='Overall Rank').reset_index(drop=True)
+
+# --- Display Logic ---
+
+def display_styled_table(df: pd.DataFrame):
+    """
+    Applies styling and formatting to the DataFrame for presentation in Streamlit.
+    """
     column_order = [
-        "Stock Symbol", "Market Cap", "Current Price", "Analyst Target",
-        "Upside", "EPS", "P/E Ratio", "Overall Rank"
+        "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
+        "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
+    
+    # Create a mapping of index to currency symbol for efficient formatting
+    currency_symbol_map = df['Currency'].map(CURRENCY_SYMBOLS).fillna('') + ''
+    
+    # Create the Styler object
+    styler = df[column_order].style
 
-    format_rules = {
-        'Overall Rank': '{:.0f}',
+    # Apply color gradients to numeric rank-contributing columns
+    styler.background_gradient(cmap='Greens', subset=['Upside', 'EPS'])
+    styler.background_gradient(cmap='Greens_r', subset=['P/E Ratio']) # Reversed for P/E
+
+    # Apply all formatting in a single, clean step
+    styler.format({
+        'Overall Rank': '{:,.0f}',
+        'Market Cap': lambda cap: f"{currency_symbol_map[cap.index[0]]}{cap.iloc[0]/1e12:,.2f}T" if cap.iloc[0] >= 1e12 else
+                                  f"{currency_symbol_map[cap.index[0]]}{cap.iloc[0]/1e9:,.2f}B" if cap.iloc[0] >= 1e9 else
+                                  f"{currency_symbol_map[cap.index[0]]}{cap.iloc[0]/1e6:,.2f}M" if cap.iloc[0] >= 1e6 else
+                                  "N/A",
+        'Current Price': lambda price: f"{currency_symbol_map[price.index[0]]}{price.iloc[0]:,.2f}" if pd.notnull(price.iloc[0]) else "N/A",
+        'Analyst Target': lambda target: f"{currency_symbol_map[target.index[0]]}{target.iloc[0]:,.2f}" if pd.notnull(target.iloc[0]) else "N/A",
         'Upside': '{:,.2%}',
-        'EPS': lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A',
-        'P/E Ratio': lambda x: f"{x:.2f}" if pd.notnull(x) else 'N/A'
-    }
+        'EPS': '{:,.2f}',
+        'P/E Ratio': '{:,.1f}x',
+    }, na_rep="N/A")
 
-    styler = df_display[column_order].style.format(format_rules)
+    # Hide the index column for a cleaner look
+    styler.hide()
 
-    # Apply color gradients to the original numeric data, not the formatted strings
-    styler.background_gradient(cmap='RdYlGn', subset=['Upside'], data=df)
-    styler.background_gradient(cmap='RdYlGn', subset=['EPS'], data=df)
-    styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'], data=df)
-
-    # Calculate dynamic height
+    # Calculate dynamic height and display the table
     table_height = (len(df.index) + 1) * 35 + 3
     st.dataframe(styler, use_container_width=True, height=table_height)
 
+# --- Main Application ---
 
-# --- Main Streamlit App ---
 def main():
-    st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
+    """Main function to run the Streamlit app."""
     st.title("📈 Stock Analysis Dashboard")
+    st.markdown("Enter stock symbols to get a ranked analysis based on key financial metrics.")
 
-    st.header("Financial Ranking & Analysis")
-
-    default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS, ZYDUSLIFE.BO, ITC.NS, CAMS.NS"
-
+    default_stocks = "AAPL, MSFT, GOOGL, NVDA, TSLA, M&M.NS, ITC.NS, TESCO.L, SIE.DE"
+    
     symbols_input = st.text_input(
-        "Enter stock symbols to analyze (comma-separated):",
-        value=default_stocks
+        "Enter stock symbols (comma-separated):",
+        value=default_stocks,
+        help="Use Yahoo Finance tickers (e.g., 'AAPL' for Apple, 'TCS.NS' for TCS India)."
     )
-
+    
     symbols_to_analyze = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 
     if symbols_to_analyze:
-        analysis_df = perform_analysis(symbols_to_analyze)
+        analysis_df = analyze_stocks(symbols_to_analyze)
 
         if analysis_df is not None and not analysis_df.empty:
-            # --- Split DataFrame into US and Non-US stocks ---
-            us_stocks_df = analysis_df[~analysis_df['Stock Symbol'].str.contains(r'\.')].copy()
-            non_us_stocks_df = analysis_df[analysis_df['Stock Symbol'].str.contains(r'\.')].copy()
+            # Split stocks into US and International based on the ticker format
+            us_stocks_df = analysis_df[~analysis_df['Stock Symbol'].str.contains(r'\.')]
+            intl_stocks_df = analysis_df[analysis_df['Stock Symbol'].str.contains(r'\.')]
 
             if not us_stocks_df.empty:
                 st.subheader("🇺🇸 US Stocks")
                 display_styled_table(us_stocks_df)
-
-            if not non_us_stocks_df.empty:
+            
+            if not intl_stocks_df.empty:
                 st.subheader("🌍 International Stocks")
-                display_styled_table(non_us_stocks_df)
-        else:
-            st.info("No valid data could be retrieved for the entered symbols.")
+                display_styled_table(intl_stocks_df)
     else:
-        st.warning("Please enter at least one stock symbol to analyze.")
-
-    with st.expander("🎓 Learn About the Metrics"):
+        st.info("Please enter at least one stock symbol to begin analysis.")
+        
+    # --- Explainer Section ---
+    with st.expander("🎓 Learn About the Metrics Used for Ranking"):
         st.markdown(r"""
-        ### Analyst Upside Potential
-        - **What it is:** The percentage difference between the current stock price and the average target price set by market analysts. A higher percentage suggests more potential growth in the eyes of analysts.
+        The **Overall Rank** is determined by combining the ranks of the following three key metrics. A lower overall rank is better.
+
+        ### 1. Analyst Upside Potential
+        - **What it is:** The potential percentage increase from the stock's **current price** to the **average target price** set by market analysts.
+        - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
         - **Formula:** $ \text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}} $
 
-        ### EPS (Earnings Per Share)
-        - **What it is:** A company's profit allocated to each outstanding share of common stock. It is a primary indicator of a company's profitability.
-        - **Formula:** $ \text{EPS} = \frac{\text{Net Income} - \text{Preferred Dividends}}{\text{Average Outstanding Shares}} $
-
-        ### P/E (Price-to-Earnings) Ratio
-        - **What it is:** The ratio of a company's stock price to its earnings per share. It shows what the market is willing to pay today for a stock based on its past or future earnings.
-        - **Significance:** A **low P/E** can indicate that a stock is undervalued. A **high P/E** can mean the stock is overvalued or that investors expect high future growth.
-        - **Formula:** $ \text{P/E Ratio} = \frac{\text{Market Value per Share}}{\text{Earnings per Share (EPS)}} $
+        ### 2. EPS (Earnings Per Share)
+        - **What it is:** The portion of a company's profit allocated to each outstanding share of common stock.
+        - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
+        
+        ### 3. P/E (Price-to-Earnings) Ratio
+        - **What it is:** The ratio of the company's stock price to its earnings per share. It shows how much investors are willing to pay for each dollar of earnings.
+        - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
+        - **Formula:** $ \text{P/E Ratio} = \frac{\text{Share Price}}{\text{Earnings per Share (EPS)}} $
         """)
 
 if __name__ == "__main__":
