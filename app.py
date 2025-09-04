@@ -4,7 +4,6 @@ import yfinance as yf
 import os
 
 # --- CSV Data Management for Portfolio ---
-
 CSV_FILE = 'portfolio.csv'
 
 def load_portfolio():
@@ -24,10 +23,8 @@ def save_portfolio(df):
     df.to_csv(CSV_FILE, index=False)
 
 # --- yfinance Data Fetching ---
-
 @st.cache_data(ttl=600)  # Cache data for 10 minutes
 def get_stock_data(symbol):
-    """Fetches stock data including new metrics using the yfinance library."""
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
@@ -46,11 +43,9 @@ def get_stock_data(symbol):
         return None, None, None, None, None
 
 # --- Main Analysis Function ---
-
 def perform_analysis(symbols):
-    """Takes a list of symbols and returns a DataFrame with analysis and rankings."""
     data = []
-    for i, symbol in enumerate(symbols):
+    for symbol in symbols:
         current_price, target_price, eps, market_cap, pe_ratio = get_stock_data(symbol)
         if current_price is not None:
             upside = ((target_price - current_price) / current_price) if target_price and current_price != 0 else 0
@@ -63,32 +58,30 @@ def perform_analysis(symbols):
                 "Market Cap": market_cap,
                 "P/E Ratio": pe_ratio
             })
+
     if not data:
         return None
-    df = pd.DataFrame(data)
 
-    # --- Create Rankings ---
+    df = pd.DataFrame(data)
     df['Upside Rank'] = df['Upside'].rank(ascending=False, method='min', na_option='bottom')
     df['EPS Rank'] = df['EPS'].rank(ascending=False, method='min', na_option='bottom')
-    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')  # Lower P/E is better
+    df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, method='min', na_option='bottom')
     df['Rank Product'] = df['Upside Rank'] * df['EPS Rank'] * df['P/E Rank']
     df['Overall Rank'] = df['Rank Product'].rank(ascending=True, method='min')
     df = df.sort_values(by='Overall Rank').reset_index(drop=True)
     return df
 
 # --- Streamlit App ---
-
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis Dashboard")
 
-    # Initialize portfolio in session state
     if 'portfolio' not in st.session_state:
         st.session_state.portfolio = load_portfolio()
 
     st.sidebar.header("My Portfolio")
 
-    # Add stock to portfolio form
+    # Add stock form
     with st.sidebar.form("add_stock_form", clear_on_submit=True):
         new_symbol = st.text_input("Enter Stock Symbol", max_chars=10)
         if st.form_submit_button("Add to Portfolio") and new_symbol:
@@ -102,7 +95,8 @@ def main():
             else:
                 st.sidebar.warning(f"{symbol_upper} is already in the portfolio.")
 
-    # Display current portfolio with remove buttons
+    # Remove stock buttons with deferred rerun
+    remove_symbol = None
     if not st.session_state.portfolio.empty:
         st.sidebar.subheader("Current Stocks")
         for index, row in st.session_state.portfolio.iterrows():
@@ -110,11 +104,15 @@ def main():
             col1, col2 = st.sidebar.columns([3, 1])
             col1.write(symbol)
             if col2.button("❌", key=f"remove_{symbol}", help=f"Remove {symbol}"):
-                st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio["Symbol"] != symbol]
-                save_portfolio(st.session_state.portfolio)
-                st.experimental_rerun()
+                remove_symbol = symbol
+                break
 
-    # Main page for stock analysis
+    if remove_symbol is not None:
+        st.session_state.portfolio = st.session_state.portfolio[st.session_state.portfolio["Symbol"] != remove_symbol]
+        save_portfolio(st.session_state.portfolio)
+        st.experimental_rerun()
+
+    # Main analysis section
     st.header("Financial Ranking & Analysis")
 
     default_stocks = ",".join(st.session_state.portfolio["Symbol"].values) if not st.session_state.portfolio.empty else "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META"
@@ -131,7 +129,6 @@ def main():
         if symbols_to_analyze:
             analysis_df = perform_analysis(symbols_to_analyze)
             if analysis_df is not None:
-                # Formatting helpers
                 def format_market_cap(cap):
                     if pd.isnull(cap):
                         return 'N/A'
