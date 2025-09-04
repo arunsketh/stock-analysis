@@ -12,7 +12,7 @@ st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
-    'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
+    'USD': '$', 'EUR': '€', 'GBP': '£', 'GBp': 'p'  'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥'
 }
 
@@ -89,11 +89,24 @@ def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 # --- Display Logic ---
 
+
 def display_styled_table(df: pd.DataFrame):
     """
     Applies styling and formatting to the DataFrame for presentation in Streamlit.
     """
     display_df = df.copy()
+
+    # --- Define desired column widths in pixels ---
+    column_widths = {
+        "Overall Rank": 80,
+        "Stock Symbol": 120,
+        "Market Cap": 130,
+        "Current Price": 130,
+        "Analyst Target": 130,
+        "Upside": 110,
+        "EPS": 100,
+        "P/E Ratio": 100,
+    }
 
     # --- Pre-format columns that need row-specific context (like currency) ---
     def format_currency_columns(row):
@@ -133,10 +146,20 @@ def display_styled_table(df: pd.DataFrame):
         'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
 
+    # --- Generate CSS for column widths and apply to the table ---
+    styles = []
+    for col_name, width in column_widths.items():
+        col_idx = display_df[column_order].columns.get_loc(col_name)
+        styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': [('width', f'{width}px')]})
+
+    styler.set_table_styles(styles)
+
     # --- Final Touches ---
     styler.hide()
     table_height = (len(df.index) + 1) * 35 + 3
     st.dataframe(styler, use_container_width=True, height=table_height)
+
+# --- Main Application ---
 
 # --- Main Application ---
 
