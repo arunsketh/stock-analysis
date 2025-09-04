@@ -142,7 +142,7 @@ def main():
 
     st.header("Financial Ranking & Analysis")
 
-    default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS, ZYDUSLIFE.BO, ITC.NS, CAMS.NS, TESCO.L"
+    default_stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS, ZYDUSLIFE.BO, ITC.NS, CAMS.NS"
 
     symbols_input = st.text_input(
         "Enter stock symbols to analyze (comma-separated):",
