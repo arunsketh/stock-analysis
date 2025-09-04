@@ -5,14 +5,14 @@ from typing import List, Dict, Any, Optional
 
 # --- Configuration & Constants ---
 
-stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ZYDUSLIFE.BO,ITC.NS, CAMS.NS "
-
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 
+stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ZYDUSLIFE.BO,ITC.NS, CAMS.NS "
+
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
-    'USD': '$', 'EUR': '€', 'GBP': '£', 'GBp': 'p' , 'INR': '₹', 'JPY': '¥',
+    'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥'
 }
 
@@ -89,7 +89,6 @@ def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
 # --- Display Logic ---
 
-
 def display_styled_table(df: pd.DataFrame):
     """
     Applies styling and formatting to the DataFrame for presentation in Streamlit.
@@ -98,14 +97,14 @@ def display_styled_table(df: pd.DataFrame):
 
     # --- Define desired column widths in pixels ---
     column_widths = {
-        "Overall Rank": 10,
-        "Stock Symbol": 50,
-        "Market Cap": 50,
-        "Current Price": 50,
-        "Analyst Target": 50,
-        "Upside": 30,
-        "EPS": 30,
-        "P/E Ratio": 30,
+        "Overall Rank": 80,
+        "Stock Symbol": 120,
+        "Market Cap": 130,
+        "Current Price": 130,
+        "Analyst Target": 130,
+        "Upside": 110,
+        "EPS": 100,
+        "P/E Ratio": 100,
     }
 
     # --- Pre-format columns that need row-specific context (like currency) ---
@@ -161,8 +160,6 @@ def display_styled_table(df: pd.DataFrame):
 
 # --- Main Application ---
 
-# --- Main Application ---
-
 def main():
     """Main function to run the Streamlit app."""
     st.title("📈 Stock Analysis Dashboard")
@@ -189,7 +186,7 @@ def main():
             if not us_stocks_df.empty:
                 # Rank the US stocks group
                 ranked_us_df = rank_dataframe(us_stocks_df)
-                st.subheader("🗽 US Stocks (Ranked Separately)")
+                st.subheader("🇺🇸 US Stocks (Ranked Separately)")
                 display_styled_table(ranked_us_df)
 
             if not intl_stocks_df.empty:
