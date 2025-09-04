@@ -12,8 +12,8 @@ st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 # DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
 DEFAULT_STOCKS = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ZYDUSLIFE.BO,ITC.NS, CAMS.NS "
 
+
 # Dictionary for mapping currency codes to symbols for cleaner display
-# Added GBp for pence and GBP for pounds sterling.
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥', 'GBp': 'p'
@@ -84,6 +84,20 @@ def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df['Overall Rank'] = (df['Upside Rank'] + df['EPS Rank'] + df['P/E Rank']).rank(ascending=True, method='min')
     return df.sort_values(by='Overall Rank').reset_index(drop=True)
 
+# --- Excel Export ---
+
+def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
+    """
+    Takes a dictionary of DataFrames and writes them to an Excel file in memory.
+    Returns the Excel file as bytes.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sheet_name, df in df_dict.items():
+            if not df.empty:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return output.getvalue()
+
 # --- Display Logic ---
 
 def display_styled_table(df: pd.DataFrame):
@@ -92,9 +106,11 @@ def display_styled_table(df: pd.DataFrame):
     """
     display_df = df.copy()
 
+    def_width=30
+
     column_widths = {
-        "Overall Rank": 80, "Stock Symbol": 120, "Market Cap": 130, "Current Price": 130,
-        "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
+        "Overall Rank": def_width, "Stock Symbol": def_width, "Market Cap": def_width, "Current Price": def_width,
+        "Analyst Target": def_width, "Upside": def_width+10, "EPS": def_width+10, "P/E Ratio": def_width+10,
     }
 
     def format_currency_columns(row):
@@ -113,14 +129,13 @@ def display_styled_table(df: pd.DataFrame):
         # Handle Prices: Use the currency symbol directly (e.g., 'p' for GBp)
         price_symbol = CURRENCY_SYMBOLS.get(currency, currency)
         price = row['Current Price']
-        row['Current Price'] = f"{price_symbol}{price:,.2f}" if pd.notnull(price) else "N/A"
         target = row['Analyst Target']
-        # For GBp stocks, the price is in pence, so we append 'p'
-        if currency == 'GBp' and pd.notnull(price):
-            row['Current Price'] = f"{price:,.2f}{price_symbol}"
-        if currency == 'GBp' and pd.notnull(target):
-            row['Analyst Target'] = f"{target:,.2f}{price_symbol}"
+
+        if currency == 'GBp': # Format pence with symbol at the end
+             row['Current Price'] = f"{price:,.2f}{price_symbol}" if pd.notnull(price) else "N/A"
+             row['Analyst Target'] = f"{target:,.2f}{price_symbol}" if pd.notnull(target) else "N/A"
         else: # Standard formatting for all other currencies
+            row['Current Price'] = f"{price_symbol}{price:,.2f}" if pd.notnull(price) else "N/A"
             row['Analyst Target'] = f"{price_symbol}{target:,.2f}" if pd.notnull(target) else "N/A"
             
         return row
@@ -156,12 +171,11 @@ def display_styled_table(df: pd.DataFrame):
 def main():
     """Main function to run the Streamlit app."""
     st.title("📈 Stock Analysis Dashboard")
-    st.markdown("Enter stock symbols to get a ranked analysis based on key financial metrics. Stocks are ranked separately for US and International groups.")
-
+    
     symbols_input = st.text_input(
         "Enter stock symbols (comma-separated):",
         value=DEFAULT_STOCKS,
-        help="Use Yahoo Finance tickers (e.g., 'AAPL' for Apple, 'TCS.NS' for TCS India)."
+        help="Use Yahoo Finance tickers (e.g., 'AAPL' for Apple, 'TCS.NS' for TCS India, 'VOD.L' for Vodafone UK)."
     )
     symbols_to_analyze = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 
@@ -178,6 +192,16 @@ def main():
             if not intl_stocks_df.empty:
                 excel_dfs["International Stocks"] = rank_dataframe(intl_stocks_df.copy())
             
+            # --- Display ranked tables on the page ---
+            if "US Stocks" in excel_dfs:
+                st.subheader("🗽 US Stocks (Ranked Separately)")
+                display_styled_table(excel_dfs["US Stocks"])
+
+            if "International Stocks" in excel_dfs:
+                st.subheader("🌍 International Stocks (Ranked Separately)")
+                display_styled_table(excel_dfs["International Stocks"])
+
+            # --- Place download button at the bottom ---
             if excel_dfs:
                 excel_bytes = dfs_to_excel(excel_dfs)
                 st.download_button(
@@ -186,14 +210,6 @@ def main():
                     file_name="stock_analysis.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
-            if "US Stocks" in excel_dfs:
-                st.subheader("🗽 US Stocks (Ranked Separately)")
-                display_styled_table(excel_dfs["US Stocks"])
-
-            if "International Stocks" in excel_dfs:
-                st.subheader("🌍 International Stocks (Ranked Separately)")
-                display_styled_table(excel_dfs["International Stocks"])
     else:
         st.info("Please enter at least one stock symbol to begin analysis.")
 
@@ -208,22 +224,9 @@ def main():
         ### 2. EPS (Earnings Per Share)
         - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
 
-        ### 3. P/E (Price-to-Earnings) Ratio)
+        ### 3. P/E (Price-to-Earnings) Ratio
         - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
         """)
-    # --- Excel Export ---
-
-def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
-    """
-    Takes a dictionary of DataFrames and writes them to an Excel file in memory.
-    Returns the Excel file as bytes.
-    """
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sheet_name, df in df_dict.items():
-            if not df.empty:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output.getvalue()
 
 if __name__ == "__main__":
     main()
