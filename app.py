@@ -12,7 +12,7 @@ st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
-    'USD': '$', 'EUR': '€', 'GBP': '£', 'GBp': 'p'  'INR': '₹', 'JPY': '¥',
+    'USD': '$', 'EUR': '€', 'GBP': '£', 'GBp': 'p' , 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥'
 }
 
