@@ -84,20 +84,6 @@ def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df['Overall Rank'] = (df['Upside Rank'] + df['EPS Rank'] + df['P/E Rank']).rank(ascending=True, method='min')
     return df.sort_values(by='Overall Rank').reset_index(drop=True)
 
-# --- Excel Export ---
-
-def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
-    """
-    Takes a dictionary of DataFrames and writes them to an Excel file in memory.
-    Returns the Excel file as bytes.
-    """
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sheet_name, df in df_dict.items():
-            if not df.empty:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output.getvalue()
-
 # --- Display Logic ---
 
 def display_styled_table(df: pd.DataFrame):
@@ -202,7 +188,7 @@ def main():
                 )
 
             if "US Stocks" in excel_dfs:
-                st.subheader("🇺🇸 US Stocks (Ranked Separately)")
+                st.subheader("🗽 US Stocks (Ranked Separately)")
                 display_styled_table(excel_dfs["US Stocks"])
 
             if "International Stocks" in excel_dfs:
@@ -225,6 +211,19 @@ def main():
         ### 3. P/E (Price-to-Earnings) Ratio)
         - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
         """)
+    # --- Excel Export ---
+
+def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
+    """
+    Takes a dictionary of DataFrames and writes them to an Excel file in memory.
+    Returns the Excel file as bytes.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sheet_name, df in df_dict.items():
+            if not df.empty:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return output.getvalue()
 
 if __name__ == "__main__":
     main()
