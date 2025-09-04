@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional
 
 # --- Configuration & Constants ---
 
+stocks = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ZYDUSLIFE.BO,ITC.NS, CAMS.NS "
+
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 
@@ -143,7 +145,7 @@ def main():
     st.title("📈 Stock Analysis Dashboard")
     st.markdown("Enter stock symbols to get a ranked analysis based on key financial metrics. Stocks are ranked separately for US and International groups.")
 
-    default_stocks = "AAPL, MSFT, GOOGL, NVDA, TSLA, M&M.NS, ITC.NS, TESCO.L, SIE.DE"
+    default_stocks = stocks
 
     symbols_input = st.text_input(
         "Enter stock symbols (comma-separated):",
@@ -164,7 +166,7 @@ def main():
             if not us_stocks_df.empty:
                 # Rank the US stocks group
                 ranked_us_df = rank_dataframe(us_stocks_df)
-                st.subheader("🇺🇸 US Stocks (Ranked Separately)")
+                st.subheader("🗽 US Stocks (Ranked Separately)")
                 display_styled_table(ranked_us_df)
 
             if not intl_stocks_df.empty:
