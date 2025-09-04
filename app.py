@@ -14,7 +14,7 @@ CURRENCY_SYMBOLS: Dict[str, str] = {
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥'
 }
 
-# --- Data Fetching ---
+# --- Data Fetching & Processing ---
 
 @st.cache_data(ttl=3600)  # Cache data for 1 hour
 def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
@@ -44,12 +44,10 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
         st.error(f"An error occurred while fetching data for {symbol}: {e}")
         return None
 
-# --- Data Analysis ---
-
-def analyze_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
+def process_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
     """
-    Orchestrates fetching and analysis for a list of stock symbols.
-    Returns a ranked DataFrame or None if no data is available.
+    Orchestrates fetching data for a list of symbols and calculates base metrics.
+    Returns an unranked DataFrame or None if no data is available.
     """
     data = []
     progress_bar = st.progress(0, text="Initializing data fetch...")
@@ -67,11 +65,16 @@ def analyze_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
         return None
 
     df = pd.DataFrame(data)
-
-    # --- Calculations & Ranking ---
-    # Calculate upside potential
+    # Calculate upside potential, which is needed before ranking
     df['Upside'] = (df['Analyst Target'] - df['Current Price']) / df['Current Price']
+    return df
 
+# --- Ranking Logic ---
+
+def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Takes a DataFrame and adds ranking columns to it.
+    """
     # Create individual ranks (higher is better for Upside/EPS, lower is better for P/E)
     df['Upside Rank'] = df['Upside'].rank(ascending=False, na_option='bottom')
     df['EPS Rank'] = df['EPS'].rank(ascending=False, na_option='bottom')
@@ -88,14 +91,11 @@ def display_styled_table(df: pd.DataFrame):
     """
     Applies styling and formatting to the DataFrame for presentation in Streamlit.
     """
-    # Make a copy to avoid modifying the original DataFrame
     display_df = df.copy()
 
-    # --- 1. Pre-format columns that need row-specific context (like currency) ---
+    # --- Pre-format columns that need row-specific context (like currency) ---
     def format_currency_columns(row):
         symbol = CURRENCY_SYMBOLS.get(row['Currency'], row['Currency'])
-
-        # Format Market Cap
         cap = row['Market Cap']
         if pd.notnull(cap):
             if cap >= 1e12: row['Market Cap'] = f"{symbol}{cap/1e12:,.2f}T"
@@ -105,31 +105,25 @@ def display_styled_table(df: pd.DataFrame):
         else:
             row['Market Cap'] = "N/A"
 
-        # Format Prices
         price = row['Current Price']
         row['Current Price'] = f"{symbol}{price:,.2f}" if pd.notnull(price) else "N/A"
-
         target = row['Analyst Target']
         row['Analyst Target'] = f"{symbol}{target:,.2f}" if pd.notnull(target) else "N/A"
-
         return row
 
-    # Apply the formatting function row-by-row to create our display text
     display_df = display_df.apply(format_currency_columns, axis=1)
 
-    # --- 2. Define final column order and create the Styler ---
+    # --- Define column order and create the Styler ---
     column_order = [
         "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
     styler = display_df[column_order].style
 
-    # --- 3. Apply styles and formats ---
-    # Gradients for numeric columns (NO data=df needed)
-    styler.background_gradient(cmap='Greens', subset=['Upside', 'EPS'])
-    styler.background_gradient(cmap='Greens_r', subset=['P/E Ratio']) # Reversed for P/E
+    # --- Apply styles and formats ---
+    styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
+    styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
 
-    # Simple formats for remaining numeric columns
     styler.format({
         'Overall Rank': '{:,.0f}',
         'Upside': '{:,.2%}',
@@ -137,18 +131,17 @@ def display_styled_table(df: pd.DataFrame):
         'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
 
-    # --- 4. Final Touches ---
-    styler.hide() # Hide the index
+    # --- Final Touches ---
+    styler.hide()
     table_height = (len(df.index) + 1) * 35 + 3
     st.dataframe(styler, use_container_width=True, height=table_height)
-
 
 # --- Main Application ---
 
 def main():
     """Main function to run the Streamlit app."""
     st.title("📈 Stock Analysis Dashboard")
-    st.markdown("Enter stock symbols to get a ranked analysis based on key financial metrics.")
+    st.markdown("Enter stock symbols to get a ranked analysis based on key financial metrics. Stocks are ranked separately for US and International groups.")
 
     default_stocks = "AAPL, MSFT, GOOGL, NVDA, TSLA, M&M.NS, ITC.NS, TESCO.L, SIE.DE"
 
@@ -161,27 +154,31 @@ def main():
     symbols_to_analyze = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
 
     if symbols_to_analyze:
-        analysis_df = analyze_stocks(symbols_to_analyze)
+        unranked_df = process_stocks(symbols_to_analyze)
 
-        if analysis_df is not None and not analysis_df.empty:
-            # Split stocks into US and International based on the ticker format
-            us_stocks_df = analysis_df[~analysis_df['Stock Symbol'].str.contains(r'\.')]
-            intl_stocks_df = analysis_df[analysis_df['Stock Symbol'].str.contains(r'\.')]
+        if unranked_df is not None and not unranked_df.empty:
+            # Split stocks into US and International *before* ranking
+            us_stocks_df = unranked_df[~unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
+            intl_stocks_df = unranked_df[unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
 
             if not us_stocks_df.empty:
-                st.subheader("🇺🇸 US Stocks")
-                display_styled_table(us_stocks_df)
+                # Rank the US stocks group
+                ranked_us_df = rank_dataframe(us_stocks_df)
+                st.subheader("🇺🇸 US Stocks (Ranked Separately)")
+                display_styled_table(ranked_us_df)
 
             if not intl_stocks_df.empty:
-                st.subheader("🌍 International Stocks")
-                display_styled_table(intl_stocks_df)
+                # Rank the International stocks group
+                ranked_intl_df = rank_dataframe(intl_stocks_df)
+                st.subheader("🌍 International Stocks (Ranked Separately)")
+                display_styled_table(ranked_intl_df)
     else:
         st.info("Please enter at least one stock symbol to begin analysis.")
 
     # --- Explainer Section ---
     with st.expander("🎓 Learn About the Metrics Used for Ranking"):
         st.markdown(r"""
-        The **Overall Rank** is determined by combining the ranks of the following three key metrics. A lower overall rank is better.
+        The **Overall Rank** is determined by combining the ranks of the following three key metrics within each group (US or International). A lower overall rank is better.
 
         ### 1. Analyst Upside Potential
         - **What it is:** The potential percentage increase from the stock's **current price** to the **average target price** set by market analysts.
