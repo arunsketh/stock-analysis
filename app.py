@@ -98,14 +98,14 @@ def display_styled_table(df: pd.DataFrame):
 
     # --- Define desired column widths in pixels ---
     column_widths = {
-        "Overall Rank": 80,
-        "Stock Symbol": 120,
-        "Market Cap": 130,
-        "Current Price": 130,
-        "Analyst Target": 130,
-        "Upside": 110,
-        "EPS": 100,
-        "P/E Ratio": 100,
+        "Overall Rank": 10,
+        "Stock Symbol": 50,
+        "Market Cap": 50,
+        "Current Price": 50,
+        "Analyst Target": 50,
+        "Upside": 30,
+        "EPS": 30,
+        "P/E Ratio": 30,
     }
 
     # --- Pre-format columns that need row-specific context (like currency) ---
