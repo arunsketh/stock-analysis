@@ -12,7 +12,6 @@ st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 # DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
 DEFAULT_STOCKS = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ZYDUSLIFE.BO,ITC.NS, CAMS.NS "
 
-
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
@@ -106,11 +105,9 @@ def display_styled_table(df: pd.DataFrame):
     """
     display_df = df.copy()
 
-    def_width=30
-
     column_widths = {
-        "Overall Rank": def_width, "Stock Symbol": def_width, "Market Cap": def_width, "Current Price": def_width,
-        "Analyst Target": def_width, "Upside": def_width+10, "EPS": def_width+10, "P/E Ratio": def_width+10,
+        "Overall Rank": 80, "Stock Symbol": 120, "Market Cap": 130, "Current Price": 130,
+        "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
     }
 
     def format_currency_columns(row):
@@ -154,14 +151,23 @@ def display_styled_table(df: pd.DataFrame):
         'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
 
+    # CORRECTED: Generate CSS for column widths and apply to the table
+    # Added !important to force the styles to apply
     styles = []
     for col_name, width in column_widths.items():
         col_idx = display_df[column_order].columns.get_loc(col_name)
-        props = [('width', f'{width}px'), ('min-width', f'{width}px'), ('max-width', f'{width}px')]
+        # Apply style to both header (th) and data cells (td)
+        props = [
+            ('width', f'{width}px !important'),
+            ('min-width', f'{width}px !important'),
+            ('max-width', f'{width}px !important')
+        ]
         styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
         styles.append({'selector': f'td.col{col_idx}', 'props': props})
+
     styler.set_table_styles(styles, overwrite=False)
 
+    # --- Final Touches ---
     styler.hide()
     table_height = (len(df.index) + 1) * 35 + 3
     st.dataframe(styler, use_container_width=True, height=table_height)
@@ -192,7 +198,7 @@ def main():
             if not intl_stocks_df.empty:
                 excel_dfs["International Stocks"] = rank_dataframe(intl_stocks_df.copy())
             
-            # --- Display ranked tables on the page ---
+            # Display ranked tables on the page
             if "US Stocks" in excel_dfs:
                 st.subheader("🗽 US Stocks (Ranked Separately)")
                 display_styled_table(excel_dfs["US Stocks"])
@@ -201,8 +207,9 @@ def main():
                 st.subheader("🌍 International Stocks (Ranked Separately)")
                 display_styled_table(excel_dfs["International Stocks"])
 
-            # --- Place download button at the bottom ---
+            # Place download button at the bottom
             if excel_dfs:
+                st.markdown("---") # Add a horizontal rule for separation
                 excel_bytes = dfs_to_excel(excel_dfs)
                 st.download_button(
                     label="📥 Download Analysis as Excel",
