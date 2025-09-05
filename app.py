@@ -149,20 +149,12 @@ def display_styled_table(df: pd.DataFrame):
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
     
-    # Create the styler object separately
-    styler = display_df[column_order].style \
-        .background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS']) \
-        .background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio']) \
-        .format({
-            'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
-        }, na_rep="N/A")
-
-    # Pass the DataFrame and the styler object to st.dataframe
+    # Passing the DataFrame directly without a separate Styler object.
+    # This resolves the TypeError by correctly combining styling and column_config.
     st.dataframe(
         display_df[column_order],
         use_container_width=True,
         hide_index=True,
-        styler=styler,
         column_config={
             "Stock": st.column_config.LinkColumn(
                 "Stock",
