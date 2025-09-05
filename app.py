@@ -111,11 +111,6 @@ def display_styled_table(df: pd.DataFrame):
     # Create the display name column for the link
     display_df['Stock'] = display_df['Stock Name'] + ' - ' + display_df['Stock Symbol']
 
-    column_widths = {
-        "Overall Rank": 80, "Stock": 250, "Market Cap": 130, "Current Price": 130,
-        "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
-    }
-
     def format_currency_columns(row):
         currency = row['Currency']
         
@@ -150,45 +145,23 @@ def display_styled_table(df: pd.DataFrame):
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
     
-    styler = display_df[column_order].style
-    styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
-    styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
-    styler.format({
-        'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
-    }, na_rep="N/A")
-
-    # Generate CSS for column widths and apply to the table
-    styles = []
-    for col_name, width in column_widths.items():
-        if col_name in display_df.columns:
-            col_idx = display_df[column_order].columns.get_loc(col_name)
-            props = [
-                ('width', f'{width}px !important'),
-                ('min-width', f'{width}px !important'),
-                ('max-width', f'{width}px !important')
-            ]
-            styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
-            styles.append({'selector': f'td.col{col_idx}', 'props': props})
-
-    styler.set_table_styles(styles, overwrite=False)
-    
-    # Hide the original columns and only show the formatted ones
-    styler.hide(axis='index')
-    
-    # Use column_config to make the 'Stock' column a clickable link
-    stock_link_config = st.column_config.LinkColumn(
-        "Stock",
-        help="Click to view on Yahoo Finance",
-        display_text="%(Stock)s",
-        href="Link" # The column containing the URL
-    )
-    
+    # Use st.dataframe with styling and column_config
     st.dataframe(
-        styler,
+        display_df[column_order].style
+        .background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
+        .background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
+        .format({
+            'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
+        }, na_rep="N/A"),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Stock": stock_link_config
+            "Stock": st.column_config.LinkColumn(
+                "Stock",
+                help="Click to view on Yahoo Finance",
+                display_text="%(Stock)s",
+                href="Link" # The column containing the URL
+            )
         }
     )
 
@@ -240,20 +213,20 @@ def main():
     else:
         st.info("Please enter at least one stock symbol to begin analysis.")
 
-    with st.expander("🎓 Learn About the Metrics Used for Ranking"):
-        st.markdown(r"""
-        The **Overall Rank** is determined by combining the ranks of the following three key metrics within each group (US or International). A lower overall rank is better.
+    st.subheader("🎓 Learn About the Metrics Used for Ranking")
+    st.markdown(r"""
+    The **Overall Rank** is determined by combining the ranks of the following three key metrics within each group (US or International). A lower overall rank is better.
 
-        ### 1. Analyst Upside Potential
-        - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
-        - **Formula:** $\text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}}$
+    ### 1. Analyst Upside Potential
+    - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
+    - **Formula:** $\text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}}$
 
-        ### 2. EPS (Earnings Per Share)
-        - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
+    ### 2. EPS (Earnings Per Share)
+    - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
 
-        ### 3. P/E (Price-to-Earnings) Ratio
-        - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
-        """)
+    ### 3. P/E (Price-to-Earnings) Ratio
+    - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
+    """)
 
 if __name__ == "__main__":
     main()
