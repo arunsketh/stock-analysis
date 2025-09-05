@@ -108,8 +108,12 @@ def display_styled_table(df: pd.DataFrame):
     """
     display_df = df.copy()
 
-    # Create the display name column for the link
-    display_df['Stock'] = display_df['Stock Name'] + ' - ' + display_df['Stock Symbol']
+    # CRITICAL FIX: Add a check to ensure 'Stock Name' exists before trying to access it.
+    # This prevents the KeyError if yfinance fails to return the longName.
+    if 'Stock Name' in display_df.columns:
+        display_df['Stock'] = display_df['Stock Name'] + ' - ' + display_df['Stock Symbol']
+    else:
+        display_df['Stock'] = display_df['Stock Symbol']
 
     def format_currency_columns(row):
         currency = row['Currency']
