@@ -34,8 +34,11 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
             st.warning(f"Could not retrieve valid data for {symbol}. It may be an incorrect ticker.")
             return None
 
+        # Added 'longName' and the Yahoo Finance URL to the returned data
         return {
             "Stock Symbol": symbol,
+            "Stock Name": info.get('longName', symbol),
+            "Link": f"https://finance.yahoo.com/quote/{symbol}",
             "Current Price": info.get('currentPrice'),
             "Analyst Target": info.get('targetMeanPrice'),
             "EPS": info.get('trailingEps'),
@@ -105,8 +108,11 @@ def display_styled_table(df: pd.DataFrame):
     """
     display_df = df.copy()
 
+    # Create the display name column for the link
+    display_df['Stock'] = display_df['Stock Name'] + ' - ' + display_df['Stock Symbol']
+
     column_widths = {
-        "Overall Rank": 80, "Stock Symbol": 120, "Market Cap": 130, "Current Price": 130,
+        "Overall Rank": 80, "Stock": 250, "Market Cap": 130, "Current Price": 130,
         "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
     }
 
@@ -140,37 +146,51 @@ def display_styled_table(df: pd.DataFrame):
     display_df = display_df.apply(format_currency_columns, axis=1)
 
     column_order = [
-        "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
+        "Overall Rank", "Stock", "Market Cap", "Current Price",
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
+    
     styler = display_df[column_order].style
-
     styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
     styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
     styler.format({
         'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
 
-    # CORRECTED: Generate CSS for column widths and apply to the table
-    # Added !important to force the styles to apply
+    # Generate CSS for column widths and apply to the table
     styles = []
     for col_name, width in column_widths.items():
-        col_idx = display_df[column_order].columns.get_loc(col_name)
-        # Apply style to both header (th) and data cells (td)
-        props = [
-            ('width', f'{width}px !important'),
-            ('min-width', f'{width}px !important'),
-            ('max-width', f'{width}px !important')
-        ]
-        styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
-        styles.append({'selector': f'td.col{col_idx}', 'props': props})
+        if col_name in display_df.columns:
+            col_idx = display_df[column_order].columns.get_loc(col_name)
+            props = [
+                ('width', f'{width}px !important'),
+                ('min-width', f'{width}px !important'),
+                ('max-width', f'{width}px !important')
+            ]
+            styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
+            styles.append({'selector': f'td.col{col_idx}', 'props': props})
 
     styler.set_table_styles(styles, overwrite=False)
-
-    # --- Final Touches ---
-    styler.hide()
-    table_height = (len(df.index) + 1) * 35 + 3
-    st.dataframe(styler, use_container_width=True, height=table_height)
+    
+    # Hide the original columns and only show the formatted ones
+    styler.hide(axis='index')
+    
+    # Use column_config to make the 'Stock' column a clickable link
+    stock_link_config = st.column_config.LinkColumn(
+        "Stock",
+        help="Click to view on Yahoo Finance",
+        display_text="%(Stock)s",
+        href="Link" # The column containing the URL
+    )
+    
+    st.dataframe(
+        styler,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Stock": stock_link_config
+        }
+    )
 
 # --- Main Application ---
 
@@ -226,7 +246,7 @@ def main():
 
         ### 1. Analyst Upside Potential
         - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
-        - **Formula:** $ \text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}} $
+        - **Formula:** $\text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}}$
 
         ### 2. EPS (Earnings Per Share)
         - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
