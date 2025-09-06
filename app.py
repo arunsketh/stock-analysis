@@ -3,20 +3,16 @@ import pandas as pd
 import yfinance as yf
 from typing import List, Dict, Any, Optional
 from io import BytesIO
-
 # --- Configuration & Constants ---
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
-
 # DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
 DEFAULT_STOCKS = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ITC.NS, CAMS.NS, IEX.NS, VMM.NS,"
-
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥', 'GBp': 'p'
 }
-
 # --- Data Fetching & Processing ---
 @st.cache_data(ttl=3600)  # Cache data for 1 hour
 def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
@@ -30,10 +26,8 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
         if not info or 'currentPrice' not in info:
             st.warning(f"Could not retrieve valid data for {symbol}. It may be an incorrect ticker.")
             return None
-        company_name = info.get('longName', symbol)  # Get full company name
         return {
-            "Stock Name-Symbol": company_name + " - " + symbol,  # Format as requested
-            "Symbol Link": f"https://finance.yahoo.com/quote/{symbol}",  # URL for hyperlink
+            "Stock Symbol": symbol,
             "Current Price": info.get('currentPrice'),
             "Analyst Target": info.get('targetMeanPrice'),
             "EPS": info.get('trailingEps'),
@@ -44,7 +38,6 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         st.error(f"An error occurred while fetching data for {symbol}: {e}")
         return None
-
 def process_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
     """
     Orchestrates fetching data for a list of symbols and calculates base metrics.
@@ -64,7 +57,6 @@ def process_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
     df = pd.DataFrame(data)
     df['Upside'] = (df['Analyst Target'] - df['Current Price']) / df['Current Price']
     return df
-
 # --- Ranking Logic ---
 def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -75,7 +67,6 @@ def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, na_option='bottom')
     df['Overall Rank'] = (df['Upside Rank'] + df['EPS Rank'] + df['P/E Rank']).rank(ascending=True, method='min')
     return df.sort_values(by='Overall Rank').reset_index(drop=True)
-
 # --- Excel Export ---
 def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
     """
@@ -86,18 +77,18 @@ def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         for sheet_name, df in df_dict.items():
             if not df.empty:
-                # For Excel, we can't have hyperlinks, so drop the link column
-                excel_df = df.drop(columns=['Symbol Link'])
-                excel_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
     return output.getvalue()
-
 # --- Display Logic ---
 def display_styled_table(df: pd.DataFrame):
     """
     Applies styling and formatting to the DataFrame for presentation in Streamlit.
-    Uses column_config for hyperlinks.
     """
     display_df = df.copy()
+    column_widths = {
+        "Overall Rank": 80, "Stock Symbol": 120, "Market Cap": 130, "Current Price": 130,
+        "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
+    }
     def format_currency_columns(row):
         currency = row['Currency']
         
@@ -124,40 +115,34 @@ def display_styled_table(df: pd.DataFrame):
             
         return row
     display_df = display_df.apply(format_currency_columns, axis=1)
-    
-    # Column order without internal ranks
     column_order = [
-        "Overall Rank", "Stock Name-Symbol", "Market Cap", "Current Price",
+        "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
-    
-    # Apply formatting
-    display_df['Upside'] = display_df['Upside'].apply(lambda x: '{:,.2%}'.format(x) if pd.notnull(x) else 'N/A')
-    display_df['EPS'] = display_df['EPS'].apply(lambda x: '{:,.2f}'.format(x) if pd.notnull(x) else 'N/A')
-    display_df['P/E Ratio'] = display_df['P/E Ratio'].apply(lambda x: '{:,.1f}x'.format(x) if pd.notnull(x) else 'N/A')
-    display_df['Overall Rank'] = display_df['Overall Rank'].apply(lambda x: '{:,.0f}'.format(x) if pd.notnull(x) else 'N/A')
-    
-    # Display with st.dataframe and column_config for hyperlink
-    st.dataframe(
-        display_df[column_order],
-        column_config={
-            "Stock Name-Symbol": st.column_config.LinkColumn(
-                "Stock Name-Symbol",
-                help="Click to go to Yahoo Finance page",
-                validate="^https://.*$",
-                max_chars=100,
-                display_text=display_df['Stock Name-Symbol']  # This won't work directly; see note below
-            )
-        },
-        use_container_width=True,
-        height=(len(df.index) + 1) * 35 + 3
-    )
-
-# Note: Streamlit's LinkColumn displays the cell value as text and links to the value if it's a URL.
-# Since "Stock Name-Symbol" is not a URL, we use a workaround by having the link in "Symbol Link" but hiding it,
-# or swap: put URL in the column and use display_text to show name.
-# Adjusted column_config accordingly in main().
-
+    styler = display_df[column_order].style
+    styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
+    styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
+    styler.format({
+        'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
+    }, na_rep="N/A")
+    # CORRECTED: Generate CSS for column widths and apply to the table
+    # Added !important to force the styles to apply
+    styles = []
+    for col_name, width in column_widths.items():
+        col_idx = display_df[column_order].columns.get_loc(col_name)
+        # Apply style to both header (th) and data cells (td)
+        props = [
+            ('width', f'{width}px !important'),
+            ('min-width', f'{width}px !important'),
+            ('max-width', f'{width}px !important')
+        ]
+        styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
+        styles.append({'selector': f'td.col{col_idx}', 'props': props})
+    styler.set_table_styles(styles, overwrite=False)
+    # --- Final Touches ---
+    styler.hide()
+    table_height = (len(df.index) + 1) * 35 + 3
+    st.dataframe(styler, use_container_width=True, height=table_height)
 # --- Main Application ---
 def main():
     """Main function to run the Streamlit app."""
@@ -172,17 +157,8 @@ def main():
     if symbols_to_analyze:
         unranked_df = process_stocks(symbols_to_analyze)
         if unranked_df is not None and not unranked_df.empty:
-            # For hyperlink workaround: Swap columns so "Stock Name-Symbol" shows name, but link is from "Symbol Link"
-            # But to make it clickable with custom text, we can use HTML in cells, but for st.dataframe, it's limited.
-            # Best compromise: Put URL in the column, display as "Name - Symbol" using display_text if possible.
-            # Since display_text is for extraction, let's set the column to URL and use a constant display_text like "View Page", but that's not ideal.
-            # Alternative: Use HTML for the whole table to have full control.
-            
-            # To provide both styling and links, we'll use st.markdown with styled HTML.
-            # This loses interactive sorting, but gains clickable custom links.
-            
-            us_stocks_df = unranked_df[~unranked_df['Stock Name-Symbol'].str.contains(r'\.')].copy()
-            intl_stocks_df = unranked_df[unranked_df['Stock Name-Symbol'].str.contains(r'\.')].copy()
+            us_stocks_df = unranked_df[~unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
+            intl_stocks_df = unranked_df[unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
             excel_dfs = {}
             if not us_stocks_df.empty:
                 excel_dfs["US Stocks"] = rank_dataframe(us_stocks_df.copy())
@@ -192,27 +168,10 @@ def main():
             # Display ranked tables on the page
             if "US Stocks" in excel_dfs:
                 st.subheader("🗽 US Stocks (Ranked Separately)")
-                ranked_df = excel_dfs["US Stocks"]
-                ranked_df['Stock Name-Symbol'] = ranked_df.apply(
-                    lambda row: f'<a href="{row["Symbol Link"]}" target="_blank">{row["Stock Name-Symbol"]}</a>', axis=1
-                )
-                # Drop the link column for display
-                display_df = ranked_df.drop(columns=['Symbol Link', 'Upside Rank', 'EPS Rank', 'P/E Rank', 'Currency'])
-                # Apply formatting
-                display_df = display_df.apply(format_currency_columns, axis=1)  # Assume the function is defined as in original
-                # To add gradients, we can use HTML style attributes, but it's complex. For now, plain HTML.
-                st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-            
+                display_styled_table(excel_dfs["US Stocks"])
             if "International Stocks" in excel_dfs:
                 st.subheader("🌍 International Stocks (Ranked Separately)")
-                ranked_df = excel_dfs["International Stocks"]
-                ranked_df['Stock Name-Symbol'] = ranked_df.apply(
-                    lambda row: f'<a href="{row["Symbol Link"]}" target="_blank">{row["Stock Name-Symbol"]}</a>', axis=1
-                )
-                display_df = ranked_df.drop(columns=['Symbol Link', 'Upside Rank', 'EPS Rank', 'P/E Rank', 'Currency'])
-                display_df = display_df.apply(format_currency_columns, axis=1)
-                st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-            
+                display_styled_table(excel_dfs["International Stocks"])
             # Place download button at the bottom
             if excel_dfs:
                 st.markdown("---") # Add a horizontal rule for separation
