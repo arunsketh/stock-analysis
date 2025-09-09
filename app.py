@@ -7,7 +7,20 @@ from io import BytesIO
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 # DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
-DEFAULT_STOCKS = stocks.txt
+DEFAULT_STOCKS_FILE = "stocks.txt" # Make sure your filename is correct!
+
+# Try to load tickers from the file
+try:
+    with open(DEFAULT_STOCKS_FILE, 'r') as f:
+        # 1. Read the entire file content into a single string
+        content = f.read()
+        
+        # 2. Split that string by the comma to get a list of tickers
+        # 3. Use strip() on each ticker to remove any extra whitespace
+        DEFAULT_STOCKS = [ticker.strip() for ticker in content.split(',') if ticker.strip()]
+
+except FileNotFoundError:
+    print(f"Warning: '{DEFAULT_STOCKS_FILE}' not found. Using default stocks.")
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
