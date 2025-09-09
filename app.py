@@ -7,7 +7,7 @@ from io import BytesIO
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 # DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
-DEFAULT_STOCKS = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ITC.NS, CAMS.NS, IEX.NS, VMM.NS,TVSMOTOR.NS,IRFC.NS"
+DEFAULT_STOCKS = "AAPL, MSFT, GOOGL, NVDA, PLTR, TSLA, META, M&M.NS, NATIONALUM.NS,ITC.NS, CAMS.NS, IEX.NS, VMM.NS,TVSMOTOR.NS,IRFC.NS,PARADEEP.NS,ASHOKLEY.NS,BIKAJI.NS,SULA.NS,BEL.NS"
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
