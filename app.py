@@ -1,32 +1,40 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import yfinance as yf
 from typing import List, Dict, Any, Optional
 from io import BytesIO
+
 # --- Configuration & Constants ---
+
 # Set wide layout and page title
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
-# DEFAULT STOCKS PARAMETER: Edit this list to change the default stocks.
-DEFAULT_STOCKS_FILE = "stocks.txt" # Make sure your filename is correct!
 
-# Try to load tickers from the file
-try:
-    with open(DEFAULT_STOCKS_FILE, 'r') as f:
-        # 1. Read the entire file content into a single string
-        content = f.read()
-        
-        # 2. Split that string by the comma to get a list of tickers
-        # 3. Use strip() on each ticker to remove any extra whitespace
-        DEFAULT_STOCKS = [ticker.strip() for ticker in content.split(',') if ticker.strip()]
+# Define the name of the file containing the default stock tickers
+DEFAULT_STOCKS_FILE = "stocks.txt"
 
-except FileNotFoundError:
-    print(f"Warning: '{DEFAULT_STOCKS_FILE}' not found. Using default stocks.")
 # Dictionary for mapping currency codes to symbols for cleaner display
 CURRENCY_SYMBOLS: Dict[str, str] = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
     'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF', 'CNY': '¥', 'GBp': 'p'
 }
-# --- Data Fetching & Processing ---
+
+# --- Data Loading & Processing ---
+
+def load_initial_tickers(filename: str) -> str:
+    """
+    Loads tickers from a file, with a fallback to a default list if the file is not found.
+    Returns a comma-separated string of tickers.
+    """
+    try:
+        with open(filename, 'r') as f:
+            # Reads tickers, assuming one per line, and joins them into a single string
+            tickers = [line.strip() for line in f if line.strip()]
+            return ", ".join(tickers)
+    except FileNotFoundError:
+        st.warning(f"'{filename}' not found. Using a default list of stocks.")
+        return "AAPL, MSFT, GOOGL, NVDA, TSLA, VOD.L"
+
 @st.cache_data(ttl=3600)  # Cache data for 1 hour
 def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
     """
@@ -36,8 +44,9 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.info
+        # Validate that essential data ('currentPrice') is present
         if not info or 'currentPrice' not in info:
-            st.warning(f"Could not retrieve valid data for {symbol}. It may be an incorrect ticker.")
+            st.warning(f"Could not retrieve valid data for '{symbol}'. It may be an incorrect ticker or delisted.")
             return None
         return {
             "Stock Symbol": symbol,
@@ -51,10 +60,11 @@ def get_stock_data(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         st.error(f"An error occurred while fetching data for {symbol}: {e}")
         return None
-def process_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
+
+def process_all_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
     """
-    Orchestrates fetching data for a list of symbols and calculates base metrics.
-    Returns an unranked DataFrame or None if no data is available.
+    Orchestrates fetching data for a list of symbols and calculates initial metrics.
+    Displays a progress bar in the UI. Returns a DataFrame or None.
     """
     data = []
     progress_bar = st.progress(0, text="Initializing data fetch...")
@@ -64,48 +74,43 @@ def process_stocks(symbols: List[str]) -> Optional[pd.DataFrame]:
         if stock_data:
             data.append(stock_data)
     progress_bar.empty()
+
     if not data:
         st.error("No valid data could be retrieved for any of the entered symbols.")
         return None
+
     df = pd.DataFrame(data)
+    # Calculate the 'Upside' potential based on analyst targets
     df['Upside'] = (df['Analyst Target'] - df['Current Price']) / df['Current Price']
     return df
-# --- Ranking Logic ---
+
+# --- Ranking & Formatting ---
+
 def rank_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Takes a DataFrame and adds ranking columns to it.
+    Takes a DataFrame of stock data and adds ranking columns to it.
+    A lower rank is better.
     """
     df['Upside Rank'] = df['Upside'].rank(ascending=False, na_option='bottom')
     df['EPS Rank'] = df['EPS'].rank(ascending=False, na_option='bottom')
+    # For P/E Ratio, a lower value is generally better (undervalued)
     df['P/E Rank'] = df['P/E Ratio'].rank(ascending=True, na_option='bottom')
+    # Calculate overall rank and sort by it
     df['Overall Rank'] = (df['Upside Rank'] + df['EPS Rank'] + df['P/E Rank']).rank(ascending=True, method='min')
     return df.sort_values(by='Overall Rank').reset_index(drop=True)
-# --- Excel Export ---
-def dfs_to_excel(df_dict: Dict[str, pd.DataFrame]) -> bytes:
+
+def format_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Takes a dictionary of DataFrames and writes them to an Excel file in memory.
-    Returns the Excel file as bytes.
-    """
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        for sheet_name, df in df_dict.items():
-            if not df.empty:
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output.getvalue()
-# --- Display Logic ---
-def display_styled_table(df: pd.DataFrame):
-    """
-    Applies styling and formatting to the DataFrame for presentation in Streamlit.
+    Applies all string formatting for currency, market cap, and percentages.
+    This separates data transformation from styling.
     """
     display_df = df.copy()
-    column_widths = {
-        "Overall Rank": 80, "Stock Symbol": 120, "Market Cap": 130, "Current Price": 130,
-        "Analyst Target": 130, "Upside": 110, "EPS": 100, "P/E Ratio": 100,
-    }
-    def format_currency_columns(row):
-        currency = row['Currency']
+
+    # Helper function to format a single row
+    def format_row(row):
+        currency = row.get('Currency', 'USD')
         
-        # Handle Market Cap: Special case for GBp stocks, as market cap is in GBP (£)
+        # Format Market Cap (e.g., $1.23T, £45.6B)
         cap = row['Market Cap']
         cap_symbol = '£' if currency == 'GBp' else CURRENCY_SYMBOLS.get(currency, currency)
         if pd.notnull(cap):
@@ -113,100 +118,146 @@ def display_styled_table(df: pd.DataFrame):
             elif cap >= 1e9: row['Market Cap'] = f"{cap_symbol}{cap/1e9:,.2f}B"
             elif cap >= 1e6: row['Market Cap'] = f"{cap_symbol}{cap/1e6:,.2f}M"
             else: row['Market Cap'] = f"{cap_symbol}{cap:,.2f}"
-        else: row['Market Cap'] = "N/A"
         
-        # Handle Prices: Use the currency symbol directly (e.g., 'p' for GBp)
+        # Format Prices (e.g., $150.25, 234.50p)
         price_symbol = CURRENCY_SYMBOLS.get(currency, currency)
-        price = row['Current Price']
-        target = row['Analyst Target']
-        if currency == 'GBp': # Format pence with symbol at the end
-             row['Current Price'] = f"{price:,.2f}{price_symbol}" if pd.notnull(price) else "N/A"
-             row['Analyst Target'] = f"{target:,.2f}{price_symbol}" if pd.notnull(target) else "N/A"
-        else: # Standard formatting for all other currencies
-            row['Current Price'] = f"{price_symbol}{price:,.2f}" if pd.notnull(price) else "N/A"
-            row['Analyst Target'] = f"{price_symbol}{target:,.2f}" if pd.notnull(target) else "N/A"
-            
+        for col in ['Current Price', 'Analyst Target']:
+            val = row[col]
+            if pd.notnull(val):
+                if currency == 'GBp': # Pence format (e.g., 150p)
+                    row[col] = f"{val:,.2f}{price_symbol}"
+                else: # Standard currency format (e.g., $150.00)
+                    row[col] = f"{price_symbol}{val:,.2f}"
         return row
-    display_df = display_df.apply(format_currency_columns, axis=1)
+
+    return display_df.apply(format_row, axis=1)
+
+# --- UI Components ---
+
+def display_styled_table(df: pd.DataFrame):
+    """
+    Takes a pre-formatted DataFrame and applies visual styles for Streamlit display.
+    """
     column_order = [
         "Overall Rank", "Stock Symbol", "Market Cap", "Current Price",
         "Analyst Target", "Upside", "EPS", "P/E Ratio"
     ]
-    styler = display_df[column_order].style
+    # Ensure all required columns are present, adding missing ones as None
+    for col in column_order:
+        if col not in df.columns:
+            df[col] = None
+    
+    formatted_df = format_dataframe_for_display(df)
+
+    styler = formatted_df[column_order].style
+    
+    # Apply color gradients to key metric columns
     styler.background_gradient(cmap='RdYlGn', subset=['Upside', 'EPS'])
     styler.background_gradient(cmap='RdYlGn_r', subset=['P/E Ratio'])
+    
+    # Apply number formatting for percentages, ratios, etc.
     styler.format({
-        'Overall Rank': '{:,.0f}', 'Upside': '{:,.2%}', 'EPS': '{:,.2f}', 'P/E Ratio': '{:,.1f}x',
+        'Overall Rank': '{:,.0f}',
+        'Upside': '{:,.2%}',
+        'EPS': '{:,.2f}',
+        'P/E Ratio': '{:,.1f}x',
     }, na_rep="N/A")
-    # CORRECTED: Generate CSS for column widths and apply to the table
-    # Added !important to force the styles to apply
-    styles = []
-    for col_name, width in column_widths.items():
-        col_idx = display_df[column_order].columns.get_loc(col_name)
-        # Apply style to both header (th) and data cells (td)
-        props = [
-            ('width', f'{width}px !important'),
-            ('min-width', f'{width}px !important'),
-            ('max-width', f'{width}px !important')
-        ]
-        styles.append({'selector': f'th.col_heading.level0.col{col_idx}', 'props': props})
-        styles.append({'selector': f'td.col{col_idx}', 'props': props})
-    styler.set_table_styles(styles, overwrite=False)
-    # --- Final Touches ---
+    
+    # Hide the index column for a cleaner look
     styler.hide()
+    
+    # Calculate dynamic height for the table
     table_height = (len(df.index) + 1) * 35 + 3
+    
     st.dataframe(styler, use_container_width=True, height=table_height)
-# --- Main Application ---
+
+def render_metrics_explanation():
+    """Displays an expander with explanations of the ranking metrics."""
+    with st.expander("🎓 Learn About the Metrics Used for Ranking"):
+        st.markdown(r"""
+        The **Overall Rank** is determined by combining the ranks of the following three key metrics. A lower overall rank is better.
+        
+        ### 1. Analyst Upside Potential
+        - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
+        - **Formula:** $\text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}}$
+        
+        ### 2. EPS (Earnings Per Share)
+        - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
+        
+        ### 3. P/E (Price-to-Earnings) Ratio
+        - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
+        """)
+
+# --- Excel Export ---
+
+def dfs_to_excel_bytes(df_dict: Dict[str, pd.DataFrame]) -> bytes:
+    """
+    Takes a dictionary of DataFrames and writes them to separate sheets in an Excel file in memory.
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        for sheet_name, df in df_dict.items():
+            if not df.empty:
+                # Use the formatted version for the Excel export for consistency
+                formatted_df_for_excel = format_dataframe_for_display(df)
+                formatted_df_for_excel.to_excel(writer, sheet_name=sheet_name, index=False)
+    return output.getvalue()
+
+# --- Main Application Logic ---
+
 def main():
     """Main function to run the Streamlit app."""
     st.title("📈 Stock Analysis Dashboard")
     
+    # Load default tickers from the file
+    default_tickers_str = load_initial_tickers(DEFAULT_STOCKS_FILE)
+    
     symbols_input = st.text_input(
-        "Enter stock symbols (comma-separated):",
-        value=DEFAULT_STOCKS,
-        help="Use Yahoo Finance tickers (e.g., 'AAPL' for Apple, 'TCS.NS' for TCS India, 'VOD.L' for Vodafone UK)."
+        "Enter stock tickers (comma-separated):",
+        value=default_tickers_str,
+        help="Use Yahoo Finance tickers (e.g., 'AAPL', 'TCS.NS', 'VOD.L')."
     )
+    
+    # Clean and capitalize the input symbols
     symbols_to_analyze = [s.strip().upper() for s in symbols_input.split(",") if s.strip()]
-    if symbols_to_analyze:
-        unranked_df = process_stocks(symbols_to_analyze)
-        if unranked_df is not None and not unranked_df.empty:
-            us_stocks_df = unranked_df[~unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
-            intl_stocks_df = unranked_df[unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
-            excel_dfs = {}
-            if not us_stocks_df.empty:
-                excel_dfs["US Stocks"] = rank_dataframe(us_stocks_df.copy())
-            if not intl_stocks_df.empty:
-                excel_dfs["International Stocks"] = rank_dataframe(intl_stocks_df.copy())
+    
+    if not symbols_to_analyze:
+        st.info("Please enter at least one stock ticker to begin analysis.")
+        return
+
+    unranked_df = process_all_stocks(symbols_to_analyze)
+    
+    if unranked_df is not None and not unranked_df.empty:
+        # Separate stocks into US and International based on the presence of a '.'
+        us_stocks_df = unranked_df[~unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
+        intl_stocks_df = unranked_df[unranked_df['Stock Symbol'].str.contains(r'\.')].copy()
+        
+        ranked_dfs = {}
+        if not us_stocks_df.empty:
+            ranked_dfs["US Stocks"] = rank_dataframe(us_stocks_df)
+        if not intl_stocks_df.empty:
+            ranked_dfs["International Stocks"] = rank_dataframe(intl_stocks_df)
             
-            # Display ranked tables on the page
-            if "US Stocks" in excel_dfs:
-                st.subheader("🗽 US Stocks (Ranked Separately)")
-                display_styled_table(excel_dfs["US Stocks"])
-            if "International Stocks" in excel_dfs:
-                st.subheader("🌍 International Stocks (Ranked Separately)")
-                display_styled_table(excel_dfs["International Stocks"])
-            # Place download button at the bottom
-            if excel_dfs:
-                st.markdown("---") # Add a horizontal rule for separation
-                excel_bytes = dfs_to_excel(excel_dfs)
-                st.download_button(
-                    label="📥 Download Analysis as Excel",
-                    data=excel_bytes,
-                    file_name="stock_analysis.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-    else:
-        st.info("Please enter at least one stock symbol to begin analysis.")
-    with st.expander("🎓 Learn About the Metrics Used for Ranking"):
-        st.markdown(r"""
-        The **Overall Rank** is determined by combining the ranks of the following three key metrics within each group (US or International). A lower overall rank is better.
-        ### 1. Analyst Upside Potential
-        - **Why it matters:** A high upside suggests that analysts believe the stock is undervalued and has room to grow. A higher upside is ranked better.
-        - **Formula:** $\text{Upside} = \frac{\text{Analyst Target Price} - \text{Current Price}}{\text{Current Price}}$
-        ### 2. EPS (Earnings Per Share)
-        - **Why it matters:** EPS is a core indicator of a company's profitability. A higher, positive EPS is a sign of good financial health and is ranked better.
-        ### 3. P/E (Price-to-Earnings) Ratio
-        - **Why it matters:** A **low P/E ratio** can indicate that a stock is undervalued compared to its earnings. In this analysis, a lower P/E ratio is ranked better.
-        """)
+        # Display tables for each group
+        if "US Stocks" in ranked_dfs:
+            st.subheader("🗽 US Stocks (Ranked)")
+            display_styled_table(ranked_dfs["US Stocks"])
+        if "International Stocks" in ranked_dfs:
+            st.subheader("🌍 International Stocks (Ranked)")
+            display_styled_table(ranked_dfs["International Stocks"])
+            
+        # Add a download button if there is data to download
+        if ranked_dfs:
+            st.markdown("---")
+            excel_bytes = dfs_to_excel_bytes(ranked_dfs)
+            st.download_button(
+                label="📥 Download Analysis as Excel",
+                data=excel_bytes,
+                file_name="stock_analysis.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+    render_metrics_explanation()
+
 if __name__ == "__main__":
     main()
