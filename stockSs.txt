@@ -1,4 +1,4 @@
-EQT
+ET
 ETN
 GEV
 HWM
